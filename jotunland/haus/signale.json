@@ -1,0 +1,23 @@
+{
+  "_hinweis": "Signale dieses Hauses für tools/auswertung.mjs (liegt in jotunland/haus/). Batterieleistung: + = Entladen.",
+  "pv_energie": "sensor.envoy_122502001651_energieerzeugung_uber_lebensdauer",
+  "bezug_energie": "sensor.envoy_122502001651_nettoenergieverbrauch_uber_lebensdauer",
+  "einspeisung_energie": "sensor.envoy_122502001651_nettoenergieerzeugung_uber_lebensdauer",
+  "warmwasser_energie": "sensor.ac_thor_energy",
+  "wallbox_energie": null,
+  "pv_leistung": "sensor.envoy_122502001651_aktuelle_stromproduktion",
+  "netz_leistung": "sensor.envoy_122502001651_aktueller_nettostromverbrauch",
+  "batterie_leistung": [
+    "sensor.encharge_492446011716_leistung",
+    "sensor.encharge_492446011732_leistung"
+  ],
+  "batterie_ladestand": "sensor.envoy_122502001651_batterie",
+  "wallbox_leistung": null,
+  "warmwasser_leistung": "sensor.ac_thor_power",
+  "warmwasser_temperatur": "sensor.ac_thor_temp_1",
+  "warmwasser_sollwert": "input_number.ac_thor_auto_sollwert_w",
+  "warmwasser_voll": "binary_sensor.ac_thor_speicher_voll",
+  "warmwasser_max_w": 9000,
+  "aussentemperatur": "weather.forecast_home",
+  "boersenpreis": "sensor.nord_pool_ger_aktueller_preis"
+}

@@ -1,0 +1,375 @@
+# AC THOR 9s – PV-Überschuss ins Warmwasser (Home-Assistant-Paket, ersetzt packages/ac_thor.yaml)
+# Die IP-Adresse des AC THOR steht nicht hier (öffentliches Repo), sondern als "ac_thor_ip" in der
+# secrets.yaml von Home Assistant.
+#
+# Warum neu: Die alte Regelung rechnete "Überschuss = AC-THOR-Leistung − Netzbezug".
+#  1. Die Hausbatterie (2 × Encharge) gleicht jedes Defizit aus – der Netzbezug bleibt ~0 und die
+#     Formel hält die komplette AC-THOR-Leistung für Überschuss. Am 25.09.2026 lief der AC THOR so
+#     mit 9,3 kW bei 5,6 kW PV, die Batterie gab 3,8 kW dazu (99 % → 94 % in 8 Minuten).
+#  2. Der Envoy liefert nur etwa einmal pro Minute neue Werte, die Automation rechnete aber alle
+#     10 s – mit der frischen AC-THOR-Leistung und dem alten Netzwert. Dadurch schaukelte sie sich
+#     nach dem Einschalten binnen Sekunden auf das Maximum hoch.
+#
+# Neu:
+#  - Die Batterieleistung (Encharge, + = Entladen) geht in die Rechnung ein: Der AC THOR darf die
+#    Batterie nie entladen und nie Strom aus dem Netz ziehen.
+#  - Unter "Batterie-Vorrang bis" bekommt der AC THOR nur echte Einspeisung, darüber zusätzlich
+#    die Ladeleistung der Batterie.
+#  - Gerechnet wird nur, wenn der Envoy einen neuen Netzwert liefert; pro Schritt höchstens
+#    +1,5 kW über der tatsächlichen AC-THOR-Leistung (kein Hochschaukeln, kein "Aufstauen",
+#    wenn der Speicher voll ist und der AC THOR nichts abnimmt).
+#  - Ein eigener Schreib-Takt (alle 20 s) hält den Watchdog des AC THOR (Power_timeout 60 s) wach –
+#    fällt Home Assistant aus, schaltet der AC THOR nach 60 s selbst auf 0.
+#
+# Modbus-Register laut my-PV "AC-THOR & AC-THOR 9s Documentation Controls" (v241205):
+#   1000 Power R/W W · 1001 Temp1 0,1 °C · 1003 Status · 1004 Power_timeout s · 1060 load_nominal W
+#   1061 UL1 V · 1062 IL1 0,1 A. Steuerungsart am Gerät: Modbus TCP (ctrl=2).
+# Register 1000 schreibt den Sollwert, beim Lesen liefert es die tatsächliche Leistung (am 25.09.2026
+# mit data.jsn "power_ac9" verglichen). Der AC THOR fährt mit etwa 60 W/s auf den Sollwert.
+# Der AC THOR erlaubt nur EINE Modbus-TCP-Verbindung – solange HA verbunden ist, kommt sonst niemand dran.
+# Die Maximaltemperatur (65 °C) regelt der AC THOR selbst – sein Fühler misst aber 10–20 K zu wenig
+# (Messwert 60 °C = real ~79 °C im Puffer, 25.09.2026). Deshalb schaltet diese Regelung schon ab
+# "AC Thor Abschalten ab (Messwert)" ab und erst 5 K darunter wieder ein – auch im Handbetrieb.
+
+modbus:
+  - name: ac_thor
+    type: tcp
+    host: !secret ac_thor_ip
+    port: 502
+    sensors:
+      - name: "AC Thor Power"
+        unique_id: ac_thor_power
+        address: 1000
+        input_type: holding
+        data_type: uint16
+        unit_of_measurement: "W"
+        device_class: power
+        state_class: measurement
+        scan_interval: 10
+
+      - name: "AC Thor Temp 1"
+        unique_id: ac_thor_temp_1
+        address: 1001
+        input_type: holding
+        data_type: uint16
+        scale: 0.1
+        precision: 1
+        unit_of_measurement: "°C"
+        device_class: temperature
+        state_class: measurement
+        scan_interval: 30
+
+      - name: "AC Thor Status"
+        unique_id: ac_thor_status
+        address: 1003
+        input_type: holding
+        data_type: uint16
+        scan_interval: 30
+
+      - name: "AC Thor Nominal Load"
+        unique_id: ac_thor_nominal_load
+        address: 1060
+        input_type: holding
+        data_type: uint16
+        unit_of_measurement: "W"
+        device_class: power
+        state_class: measurement
+        scan_interval: 300
+
+      - name: "AC Thor Voltage"
+        unique_id: ac_thor_voltage
+        address: 1061
+        input_type: holding
+        data_type: uint16
+        unit_of_measurement: "V"
+        device_class: voltage
+        state_class: measurement
+        scan_interval: 60
+
+      - name: "AC Thor Current"
+        unique_id: ac_thor_current
+        address: 1062
+        input_type: holding
+        data_type: uint16
+        scale: 0.1
+        precision: 1
+        unit_of_measurement: "A"
+        device_class: current
+        state_class: measurement
+        scan_interval: 60
+
+template:
+  - sensor:
+      # Batterieleistung beider Encharge-Einheiten: + = Entladen (Batterie → Haus), − = Laden.
+      # (Die alte Rechnung "Verbrauch − Produktion − Netz" war immer 0, weil der Envoy den
+      # Verbrauch selbst als Produktion + Netz berechnet.)
+      - name: "Battery Power"
+        unique_id: battery_power_w
+        unit_of_measurement: "W"
+        device_class: power
+        state_class: measurement
+        state: >
+          {{ (states('sensor.encharge_492446011716_leistung') | float(0)
+              + states('sensor.encharge_492446011732_leistung') | float(0)) | round(0) }}
+        availability: >
+          {{ has_value('sensor.encharge_492446011716_leistung')
+             and has_value('sensor.encharge_492446011732_leistung') }}
+
+      # Was der AC THOR gerade bekommen dürfte (inkl. dem, was er schon nimmt).
+      - name: "AC Thor verfügbarer Überschuss"
+        unique_id: pv_surplus_w
+        unit_of_measurement: "W"
+        device_class: power
+        state_class: measurement
+        state: >
+          {% set e = 'sensor.envoy_122502001651_aktueller_nettostromverbrauch' %}
+          {% set net = states(e) | float(0) %}
+          {% set net = net * 1000 if state_attr(e, 'unit_of_measurement') == 'kW' else net %}
+          {% set bat = states('sensor.battery_power') | float(0) %}
+          {% set soc = states('sensor.envoy_122502001651_batterie') | float(0) %}
+          {% set ac = states('sensor.ac_thor_power') | float(0) %}
+          {% if soc >= states('input_number.ac_thor_battery_min_soc') | float(95) %}
+            {% set frei = ac - net - bat %}
+          {% else %}
+            {% set frei = ac - net - [bat, 0] | max %}
+          {% endif %}
+          {% if net > 150 %}
+            {% set frei = [frei, ac - net] | min %}
+          {% endif %}
+          {{ [frei, 0] | max | round(0) }}
+        availability: >
+          {{ has_value('sensor.envoy_122502001651_aktueller_nettostromverbrauch')
+             and has_value('sensor.envoy_122502001651_batterie')
+             and has_value('sensor.battery_power')
+             and has_value('sensor.ac_thor_power') }}
+
+  - binary_sensor:
+      # Speicher "voll" nach Messwert, mit 5 K Hysterese. Ohne Temperaturwert gilt er als voll –
+      # lieber nicht heizen als blind heizen.
+      - name: "AC Thor Speicher voll"
+        unique_id: ac_thor_speicher_voll
+        icon: mdi:water-thermometer
+        state: >
+          {% set t = states('sensor.ac_thor_temp_1') | float(none) %}
+          {% set grenze = states('input_number.ac_thor_max_temp_messwert') | float(60) %}
+          {% if t is none %}
+            true
+          {% else %}
+            {{ t >= grenze or (this.state == 'on' and t > grenze - 5) }}
+          {% endif %}
+
+# kWh aus der AC-THOR-Leistung für das Energie-Dashboard.
+sensor:
+  - platform: integration
+    source: sensor.ac_thor_power
+    name: "AC Thor Energy"
+    unique_id: ac_thor_energy
+    unit_prefix: k
+    round: 2
+    method: left
+
+utility_meter:
+  ac_thor_daily_energy:
+    source: sensor.ac_thor_energy
+    name: "AC Thor Daily Energy"
+    cycle: daily
+
+input_boolean:
+  ac_thor_manual_override:
+    name: "AC Thor Handbetrieb"
+    icon: mdi:hand-back-right
+  ac_thor_surplus_enabled:
+    name: "AC Thor PV-Überschuss automatisch"
+    icon: mdi:solar-power-variant
+
+input_number:
+  ac_thor_manual_setpoint_w:
+    name: "AC Thor Handbetrieb Leistung"
+    min: 0
+    max: 9000
+    step: 100
+    unit_of_measurement: "W"
+    icon: mdi:flash
+  # Kein "initial:" – sonst springt der Wert bei jedem HA-Neustart zurück.
+  ac_thor_battery_min_soc:
+    name: "AC Thor Batterie-Vorrang bis"
+    min: 0
+    max: 100
+    step: 5
+    unit_of_measurement: "%"
+    icon: mdi:battery-charging
+  # Kein "initial:" – nach dem ersten Einspielen einmal auf 60 setzen.
+  ac_thor_max_temp_messwert:
+    name: "AC Thor Abschalten ab (Messwert)"
+    min: 40
+    max: 75
+    step: 1
+    unit_of_measurement: "°C"
+    icon: mdi:thermometer-alert
+  ac_thor_auto_sollwert_w:
+    name: "AC Thor Sollwert (automatisch)"
+    min: 0
+    max: 9000
+    step: 50
+    unit_of_measurement: "W"
+    mode: box
+    icon: mdi:water-boiler
+
+script:
+  ac_thor_set_0w:
+    alias: "AC Thor: Hand 0 W"
+    sequence:
+      - action: input_number.set_value
+        target: { entity_id: input_number.ac_thor_manual_setpoint_w }
+        data: { value: 0 }
+      - action: input_boolean.turn_on
+        target: { entity_id: input_boolean.ac_thor_manual_override }
+
+  ac_thor_set_1kw:
+    alias: "AC Thor: Hand 1 kW"
+    sequence:
+      - action: input_number.set_value
+        target: { entity_id: input_number.ac_thor_manual_setpoint_w }
+        data: { value: 1000 }
+      - action: input_boolean.turn_on
+        target: { entity_id: input_boolean.ac_thor_manual_override }
+
+  ac_thor_set_3kw:
+    alias: "AC Thor: Hand 3 kW"
+    sequence:
+      - action: input_number.set_value
+        target: { entity_id: input_number.ac_thor_manual_setpoint_w }
+        data: { value: 3000 }
+      - action: input_boolean.turn_on
+        target: { entity_id: input_boolean.ac_thor_manual_override }
+
+  ac_thor_set_5kw:
+    alias: "AC Thor: Hand 5 kW"
+    sequence:
+      - action: input_number.set_value
+        target: { entity_id: input_number.ac_thor_manual_setpoint_w }
+        data: { value: 5000 }
+      - action: input_boolean.turn_on
+        target: { entity_id: input_boolean.ac_thor_manual_override }
+
+  ac_thor_release_to_auto:
+    alias: "AC Thor: zurück auf Automatik"
+    sequence:
+      - action: input_boolean.turn_off
+        target: { entity_id: input_boolean.ac_thor_manual_override }
+
+automation:
+  # Watchdog im AC THOR: Kommt 60 s kein Sollwert, geht er auf 0.
+  - id: ac_thor_set_power_timeout
+    alias: "AC Thor: Power_timeout beim Start setzen"
+    triggers:
+      - trigger: homeassistant
+        event: start
+    actions:
+      - delay: "00:00:30"
+      - action: modbus.write_register
+        data: { hub: ac_thor, address: 1004, value: 60 }
+
+  # Rechnet nur, wenn der Envoy einen neuen Netzwert liefert (etwa 1× pro Minute).
+  - id: ac_thor_feed_surplus
+    alias: "AC Thor: Sollwert aus PV-Überschuss"
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: sensor.envoy_122502001651_aktueller_nettostromverbrauch
+      - trigger: state
+        entity_id: binary_sensor.ac_thor_speicher_voll
+    conditions:
+      - condition: state
+        entity_id: input_boolean.ac_thor_surplus_enabled
+        state: "on"
+      - condition: state
+        entity_id: input_boolean.ac_thor_manual_override
+        state: "off"
+    actions:
+      # Kurz warten, bis der Überschuss-Sensor den neuen Netzwert eingerechnet hat.
+      - delay: "00:00:03"
+      - condition: template
+        value_template: "{{ has_value('sensor.pv_surplus_w') }}"
+      - variables:
+          reserve: 100          # W, die im Netz bleiben – Puffer gegen Messschwankungen
+          schritt_max: 1500     # W, um die der Sollwert pro Minute höchstens steigt
+          ist: "{{ states('sensor.ac_thor_power') | float(0) }}"
+          alt: "{{ states('input_number.ac_thor_auto_sollwert_w') | float(0) }}"
+          ziel: >-
+            {%- if not is_state('binary_sensor.ac_thor_speicher_voll', 'off') -%}
+              0
+            {%- else -%}
+            {%- set z = states('sensor.pv_surplus_w') | float(0) - reserve -%}
+            {%- set z = [z, ist + schritt_max, 9000] | min -%}
+            {{- (([z, 0] | max) / 50) | round(0) * 50 -}}
+            {%- endif -%}
+      - condition: template
+        value_template: "{{ (ziel - alt) | abs >= 50 }}"
+      - action: input_number.set_value
+        target: { entity_id: input_number.ac_thor_auto_sollwert_w }
+        data: { value: "{{ ziel }}" }
+      # Entscheidungs-Log (node tools/auswertung.mjs entscheidungen)
+      - action: logbook.log
+        continue_on_error: true
+        data:
+          name: "Jotunland AC THOR"
+          entity_id: input_number.ac_thor_auto_sollwert_w
+          message: >-
+            Sollwert {{ alt | int }} → {{ ziel | int }} W · Überschuss {{ states('sensor.pv_surplus_w') }} W
+            · Netz {{ (states('sensor.envoy_122502001651_aktueller_nettostromverbrauch') | float(0) * 1000) | round(0) | int }} W
+            · Batterie {{ states('sensor.battery_power') }} W · SoC {{ states('sensor.envoy_122502001651_batterie') }} %
+            · Ist {{ ist | int }} W · Speicher {{ states('sensor.ac_thor_temp_1') }} °C
+            {%- if is_state('binary_sensor.ac_thor_speicher_voll', 'on') %} (voll){% endif %}
+
+  # Schreibt den gültigen Sollwert sofort bei Änderung und danach alle 20 s (Watchdog).
+  - id: ac_thor_manual_keepalive
+    alias: "AC Thor: Sollwert schreiben"
+    mode: queued
+    max: 3
+    triggers:
+      - trigger: time_pattern
+        seconds: "/20"
+      - trigger: state
+        entity_id:
+          - input_number.ac_thor_auto_sollwert_w
+          - input_number.ac_thor_manual_setpoint_w
+          - input_boolean.ac_thor_manual_override
+          - input_boolean.ac_thor_surplus_enabled
+          - binary_sensor.ac_thor_speicher_voll
+    conditions:
+      - condition: template
+        value_template: "{{ has_value('sensor.ac_thor_power') }}"
+    actions:
+      - action: modbus.write_register
+        data:
+          hub: ac_thor
+          address: 1000
+          # Speicher voll > Handbetrieb > Automatik > aus (0 W)
+          value: >-
+            {%- if not is_state('binary_sensor.ac_thor_speicher_voll', 'off') -%}
+              0
+            {%- elif is_state('input_boolean.ac_thor_manual_override', 'on') -%}
+              {{ states('input_number.ac_thor_manual_setpoint_w') | int(0) }}
+            {%- elif is_state('input_boolean.ac_thor_surplus_enabled', 'on') -%}
+              {{ states('input_number.ac_thor_auto_sollwert_w') | int(0) }}
+            {%- else -%}
+              0
+            {%- endif -%}
+
+  # Fehlen Netz- oder Batteriewerte länger als 2 Minuten: Automatik auf 0.
+  - id: ac_thor_failsafe_zero
+    alias: "AC Thor: Sollwert 0 ohne Messwerte"
+    triggers:
+      - trigger: state
+        entity_id: sensor.pv_surplus_w
+        to: "unavailable"
+        for: "00:02:00"
+      - trigger: state
+        entity_id: sensor.pv_surplus_w
+        to: "unknown"
+        for: "00:02:00"
+    actions:
+      - action: input_number.set_value
+        target: { entity_id: input_number.ac_thor_auto_sollwert_w }
+        data: { value: 0 }

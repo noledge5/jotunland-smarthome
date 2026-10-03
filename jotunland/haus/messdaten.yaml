@@ -1,0 +1,11 @@
+# Messdaten für die Auswertung (node tools/auswertung.mjs …)
+# Recorder-Einstellungen wirken erst nach einem Neustart von Home Assistant.
+
+recorder:
+  # Verlauf in voller Auflösung 90 statt 10 Tage (≈ 1–2 GB bei ~250 Entitäten; die
+  # stündliche Langzeitstatistik bleibt ohnehin für immer)
+  purge_keep_days: 90
+  exclude:
+    entities:
+      # schreibt alle 20 s den AC-THOR-Sollwert (Watchdog) – jeder Lauf wäre ein Datenbank- und Logbuch-Eintrag
+      - automation.ac_thor_manual_mode_keepalive_every_30_s

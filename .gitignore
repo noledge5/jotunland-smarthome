@@ -8,3 +8,9 @@ node_modules/
 # alter, nur lokaler Ort der Hausregeln – jetzt jotunland/haus/ (ohne Geheimes, Werte per !secret)
 /haus/
 secrets.yaml
+.uts/
+plaene/*/plan.html
+stand.html
+stand.seite.html
+uebersicht.html
+uebersicht.seite.html

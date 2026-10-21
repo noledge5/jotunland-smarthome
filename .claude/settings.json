@@ -1,29 +1,4 @@
 {
-  "hooks": {
-    "PostToolUse": [
-      {
-        "matcher": "Edit|Write|MultiEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.hierarchie/werkzeuge/hook-nach-aenderung.mjs\"",
-            "timeout": 60
-          }
-        ]
-      }
-    ],
-    "SessionStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.hierarchie/werkzeuge/hook-sitzungsstart.mjs\"",
-            "timeout": 300
-          }
-        ]
-      }
-    ]
-  },
   "permissions": {
     "ask": [
       "mcp__Supabase__apply_migration",
@@ -39,8 +14,5 @@
       "mcp__Supabase__pause_project",
       "mcp__Supabase__restore_project"
     ]
-  },
-  "enabledPlugins": {
-    "hierarchie@hierarchie": false
   }
 }

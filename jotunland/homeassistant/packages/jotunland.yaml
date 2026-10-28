@@ -1,4 +1,4 @@
-# jotunland-package-version: 5
+# jotunland-package-version: 6
 # =============================================================================
 #  Jotunland – Home-Assistant-Paket
 #  Helfer, Automationen und Skripte für PV-Überschussladen, Heizzeiten,
@@ -287,14 +287,18 @@ script:
         data:
           title: "{{ titel }}"
           message: "{{ nachricht }}"
-      # … und aufs Handy, sobald die Home-Assistant-App verbunden ist
-      - if: "{{ integration_entities('mobile_app') | count > 0 }}"
-        then:
-          - action: notify.notify
-            continue_on_error: true
-            data:
-              title: "{{ titel }}"
-              message: "{{ nachricht }}"
+      # … und auf jedes Handy mit der Home-Assistant-App (notify.notify erreicht nur eines).
+      # Der Dienst heißt notify.mobile_app_<Gerätename>; neue Handys kommen automatisch dazu.
+      - repeat:
+          for_each: >-
+            {{ integration_entities('mobile_app') | map('device_id') | reject('none') | unique
+               | map('device_attr', 'name') | reject('none') | map('slugify') | list }}
+          sequence:
+            - action: "notify.mobile_app_{{ repeat.item }}"
+              continue_on_error: true
+              data:
+                title: "{{ titel }}"
+                message: "{{ nachricht }}"
 
   # ---------------------------------------------------- Schnellaktionen ----
   jotunland_alles_aus:

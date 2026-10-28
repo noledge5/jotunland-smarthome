@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.1
+- Oberfläche flüssiger: die Geräteerkennung läuft nicht mehr bei jedem Messwert neu, sondern
+  nur, wenn Entitäten oder Geräte dazukommen oder wegfallen; neu gezeichnet wird höchstens
+  5× pro Sekunde. Eine Zuordnung wechselt nicht mehr, nur weil ein Sensor kurz „nicht
+  verfügbar“ ist
+- Meldungen (Kessel-Störung, Pelletvorrat, Laden fertig …) gehen an **jedes** Handy mit der
+  Home-Assistant-App statt nur an eines (Paket-Version 6)
+
 ## 0.6.0
 - Hausregeln im Repo: jede `*.yaml` in `jotunland/haus/` (z. B. die AC-THOR-Regelung) wird
   beim Installieren/Aktualisieren mit nach `/config/packages/` gespielt – mit Sicherung,

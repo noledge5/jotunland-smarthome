@@ -36,26 +36,36 @@ export interface EntityInfo {
   vendor: string;
 }
 
-export function buildInfos(entities: HassEntities, meta: Record<string, EntityMeta>, devices: Record<string, DeviceInfo>): EntityInfo[] {
+/** `cache`: unveränderte Entitäten behalten ihr Objekt – dann wird ihr Suchtext nicht neu berechnet.
+ *  Der Cache gilt nur für dieselben `meta`/`devices`. */
+export function buildInfos(entities: HassEntities, meta: Record<string, EntityMeta>, devices: Record<string, DeviceInfo>, cache?: WeakMap<HassEntity, EntityInfo>): EntityInfo[] {
   return Object.values(entities).map((entity) => {
-    const m = meta[entity.entity_id];
-    const device = m?.device_id ? devices[m.device_id] : undefined;
-    const name = String(entity.attributes.friendly_name ?? entity.entity_id);
-    const vendor = norm([m?.platform, device?.manufacturer, device?.model, device?.name].filter(Boolean).join(" "));
-    return {
-      id: entity.entity_id,
-      domain: entity.entity_id.split(".")[0],
-      entity,
-      name,
-      unit: String(entity.attributes.unit_of_measurement ?? ""),
-      deviceClass: String(entity.attributes.device_class ?? ""),
-      device,
-      meta: m,
-      text: norm(`${entity.entity_id} ${name} ${device?.name_by_user ?? ""} ${vendor}`),
-      own: norm(`${entity.entity_id} ${name} ${device?.name_by_user ?? ""} ${device?.name ?? ""}`),
-      vendor,
-    };
+    const hit = cache?.get(entity);
+    if (hit) return hit;
+    const info = buildInfo(entity, meta, devices);
+    cache?.set(entity, info);
+    return info;
   });
+}
+
+function buildInfo(entity: HassEntity, meta: Record<string, EntityMeta>, devices: Record<string, DeviceInfo>): EntityInfo {
+  const m = meta[entity.entity_id];
+  const device = m?.device_id ? devices[m.device_id] : undefined;
+  const name = String(entity.attributes.friendly_name ?? entity.entity_id);
+  const vendor = norm([m?.platform, device?.manufacturer, device?.model, device?.name].filter(Boolean).join(" "));
+  return {
+    id: entity.entity_id,
+    domain: entity.entity_id.split(".")[0],
+    entity,
+    name,
+    unit: String(entity.attributes.unit_of_measurement ?? ""),
+    deviceClass: String(entity.attributes.device_class ?? ""),
+    device,
+    meta: m,
+    text: norm(`${entity.entity_id} ${name} ${device?.name_by_user ?? ""} ${vendor}`),
+    own: norm(`${entity.entity_id} ${name} ${device?.name_by_user ?? ""} ${device?.name ?? ""}`),
+    vendor,
+  };
 }
 
 /* ------------------------------- Zuordnung ------------------------------- */

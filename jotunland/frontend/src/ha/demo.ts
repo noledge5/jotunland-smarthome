@@ -127,6 +127,10 @@ function initialStates(): HassEntities {
     e("binary_sensor.fenster_bad", "off", { friendly_name: "Fenster Bad", device_class: "window" }),
     e("sensor.bad_luftfeuchtigkeit", 64, { friendly_name: "Luftfeuchtigkeit Bad", unit_of_measurement: "%", device_class: "humidity" }),
     e("sensor.wohnzimmer_temperatur", 21.2, { friendly_name: "Temperatur Wohnzimmer", unit_of_measurement: "°C", device_class: "temperature" }),
+    e("sensor.keller_sensor_temperature", 14.6, { friendly_name: "Keller Sensor Temperatur", unit_of_measurement: "°C", device_class: "temperature" }),
+    e("sensor.keller_sensor_humidity", 58, { friendly_name: "Keller Sensor Luftfeuchtigkeit", unit_of_measurement: "%", device_class: "humidity" }),
+    e("weather.forecast_home", "partlycloudy", { friendly_name: "Zuhause", temperature: 9.4, temperature_unit: "°C" }),
+    e("sensor.nord_pool_ger_aktueller_preis", 0.2814, { friendly_name: "Aktueller Strompreis", unit_of_measurement: "EUR/kWh" }),
 
     e("input_boolean.jotunland_abwesend", "off", { friendly_name: "Abwesend", icon: "mdi:airplane" }),
     e("input_boolean.jotunland_sommerbetrieb", "off", { friendly_name: "Sommerbetrieb (Pellets aus)" }),

@@ -39,6 +39,10 @@ const STATE_DE: Record<string, string> = {
   on: "An", off: "Aus", open: "Offen", closed: "Geschlossen", opening: "Öffnet", closing: "Schließt",
   unavailable: "Nicht erreichbar", unknown: "Unbekannt", heat: "Heizen", auto: "Automatik", cool: "Kühlen",
   heating: "heizt", idle: "hält", home: "Zuhause", not_home: "Abwesend",
+  // Wetter (weather.*)
+  fog: "Nebel", sunny: "Sonnig", "clear-night": "Klar", cloudy: "Bewölkt", partlycloudy: "Teils bewölkt", rainy: "Regen",
+  pouring: "Starkregen", snowy: "Schnee", "snowy-rainy": "Schneeregen", windy: "Windig", "windy-variant": "Windig",
+  lightning: "Gewitter", "lightning-rainy": "Gewitter", hail: "Hagel", exceptional: "Unwetter",
 };
 
 export function fmtState(e?: HassEntity): string {

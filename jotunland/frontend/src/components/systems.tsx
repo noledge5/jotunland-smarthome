@@ -120,24 +120,42 @@ export function WallboxCard() {
 
 const CONTROL_ORDER = ["input_select", "select", "input_boolean", "switch", "input_number", "number", "input_button", "button", "script"];
 
-/** Alle Stellschrauben des AC THOR – auch die der eigenen Regelung (Modus, Handleistung …) */
-function useAcThorControls() {
+/** Alle Stellschrauben des AC THOR – auch die der eigenen Regelung (Modus, Handleistung …) – und was daraus folgt */
+export function useAcThor() {
   const { infos } = useHass();
-  return useMemo(
+  const power = useEntity("acthor.power");
+  const controls = useMemo(
     () =>
       infos
         .filter((i) => CONTROL_ORDER.includes(i.domain) && MYPV.test(i.own) && i.entity.state !== "unavailable")
         .sort((a, b) => CONTROL_ORDER.indexOf(a.domain) - CONTROL_ORDER.indexOf(b.domain) || a.name.localeCompare(b.name, "de")),
     [infos],
   );
+  // Warum heizt er nicht? Speicher voll sperrt auch den Handbetrieb.
+  // Temperaturgrenze der eigenen Regelung, z. B. input_number.ac_thor_max_temp_messwert
+  const limit = controls.find((c) => (c.domain === "input_number" || c.domain === "number") && c.unit === "°C" && /max|grenze|limit/.test(c.own));
+  const full = infos.find((i) => i.domain === "binary_sensor" && MYPV.test(i.own) && /voll|full|sperr|block/.test(i.own) && i.entity.state === "on");
+  // Handbetrieb: Auswahl "Modus = Hand" oder ein Schalter "…Handbetrieb…" = an
+  const hand =
+    controls.find((c) => c.domain.endsWith("select") && /modus|mode|betrieb/.test(c.own) && /hand|manu/i.test(c.entity.state)) ??
+    controls.find((c) => (c.domain === "input_boolean" || c.domain === "switch") && /hand|manu/.test(c.own) && c.entity.state === "on");
+  // Handleistung: angekommen, wenn der Heizstab ±10 % davon aufnimmt. Er fährt ~60 W/s hoch.
+  const handPower = controls.find((c) => (c.domain === "input_number" || c.domain === "number") && c.unit === "W" && /hand|manu/.test(c.own));
+  const powerConfirm: Confirm | undefined =
+    hand && !full && power
+      ? (v) => ({ check: (e) => Math.abs((watts(e[power.entity_id]) ?? 0) - Number(v)) <= Math.max(Number(v) * 0.1, 50), ms: (Number(v) / 60) * 1000 + 30_000 })
+      : undefined;
+  return { controls, limit, full, hand, handPower, powerConfirm };
 }
 
+/** Name einer AC-THOR-Stellschraube ohne den Gerätenamen davor */
+export const acThorLabel = (name: string) => name.replace(/^(my-?pv\s*)?ac[ -]?thor\s*/i, "") || name;
+
 export function AcThorCard() {
-  const { infos } = useHass();
   const power = useEntity("acthor.power");
   const temp = useEntity("acthor.temperature");
   const target = useEntity("acthor.target");
-  const controls = useAcThorControls();
+  const { controls, limit, full, hand, handPower, powerConfirm } = useAcThor();
   const today = useMemo(() => startOfDay(Date.now()), []);
   const { runs } = useRuns([power?.entity_id], today);
   if (!power && !temp) return <Card title="Warmwasser · AC THOR" icon={Droplets} tone="water"><Missing what="Der AC THOR ist" /></Card>;
@@ -145,24 +163,9 @@ export function AcThorCard() {
   const tt = target?.attributes.unit_of_measurement === "°C" ? num(target) : undefined;
   const w = watts(power) ?? 0;
   const todayRuns = power ? runs[power.entity_id] ?? [] : [];
-
-  // Warum heizt er nicht? Speicher voll sperrt auch den Handbetrieb.
-  // Temperaturgrenze der eigenen Regelung, z. B. input_number.ac_thor_max_temp_messwert
-  const limit = controls.find((c) => (c.domain === "input_number" || c.domain === "number") && c.unit === "°C" && /max|grenze|limit/.test(c.own));
   const limitVal = limit ? num(limit.entity) : undefined;
-  const full = infos.find((i) => i.domain === "binary_sensor" && MYPV.test(i.own) && /voll|full|sperr|block/.test(i.own) && i.entity.state === "on");
-  // Handbetrieb: Auswahl "Modus = Hand" oder ein Schalter "…Handbetrieb…" = an
-  const hand =
-    controls.find((c) => c.domain.endsWith("select") && /modus|mode|betrieb/.test(c.own) && /hand|manu/i.test(c.entity.state)) ??
-    controls.find((c) => (c.domain === "input_boolean" || c.domain === "switch") && /hand|manu/.test(c.own) && c.entity.state === "on");
   const handSince = hand ? Date.parse(hand.entity.last_changed) : undefined;
   const handButIdle = handSince !== undefined && !full && w < 50 && Date.now() - handSince > 90_000;
-  // Handleistung: angekommen, wenn der Heizstab ±10 % davon aufnimmt. Er fährt ~60 W/s hoch.
-  const handPower = controls.find((c) => (c.domain === "input_number" || c.domain === "number") && c.unit === "W" && /hand|manu/.test(c.own));
-  const powerConfirm: Confirm | undefined =
-    hand && !full && power
-      ? (v) => ({ check: (e) => Math.abs((watts(e[power.entity_id]) ?? 0) - Number(v)) <= Math.max(Number(v) * 0.1, 50), ms: (Number(v) / 60) * 1000 + 30_000 })
-      : undefined;
 
   return (
     <Card title="Warmwasser · AC THOR" icon={Droplets} tone="water" action={w > 50 ? <Badge tone="warn"><Flame size={12} /> heizt</Badge> : <Badge tone="muted">aus</Badge>}>
@@ -197,7 +200,7 @@ export function AcThorCard() {
             <HelperControl
               key={c.id}
               entity={c.entity}
-              label={c.name.replace(/^(my-?pv\s*)?ac[ -]?thor\s*/i, "") || c.name}
+              label={acThorLabel(c.name)}
               confirm={c === handPower ? powerConfirm : undefined}
               blocked={c === handPower && full ? "Speicher voll" : undefined}
             />
@@ -215,12 +218,13 @@ export function AcThorCard() {
 }
 
 function Tank({ top, bottom }: { top?: number; bottom?: number }) {
-  const color = (v?: number) => (v === undefined ? "var(--muted)" : `hsl(${Math.max(0, Math.min(220, 220 - (v - 20) * 4))} 75% 55%)`);
+  // warm oben, kühler unten – Füllhöhe der Wärmefarbe folgt grob der oberen Temperatur
+  const p = top === undefined ? 0 : Math.max(10, Math.min(100, (top - 20) * 1.5));
   return (
     <div className="tank" aria-label="Pufferspeicher">
-      <div className="tank-fill" style={{ background: `linear-gradient(${color(top)}, ${color(bottom)})` }} />
-      <span className="tank-top">{fmtNum(top, 0)}°</span>
-      <span className="tank-bottom">{fmtNum(bottom, 0)}°</span>
+      <div className="tank-fill" style={{ background: `linear-gradient(var(--fire) ${p * 0.6}%, var(--surface-3) ${p}%)` }} />
+      <span className="tank-top"><b>{fmtNum(top, 0)}°</b></span>
+      <span className="tank-bottom"><b>{fmtNum(bottom, 0)}°</b></span>
     </div>
   );
 }

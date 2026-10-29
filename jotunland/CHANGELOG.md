@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.9.0
+- **Neue Startseite „Haus“:** das ganze Haus als 2,5D-Abbildung mit PV, Netz, Batterie,
+  Warmwasser, Wallbox und Räumen. Bauteile färben sich, solange sie arbeiten; das Netzkabel
+  läuft bei Bezug und Einspeisung. Nur echte Werte aus Home Assistant
+- **Regler in Schildern:** Tippen klappt die Stellschrauben auf – AC-THOR-Modus und
+  Handleistung, Solltemperatur der Räume, Wallbox-Lademodus, Sommerbetrieb …
+- **Bearbeiten:** Schilder verschieben, entfernen und Werte aus der Ablage auf das Haus
+  ziehen (Verbrauch, Außen, Strompreis, Raumfühler, Komforttemperatur …). Die Anordnung
+  wird pro Benutzer in Home Assistant gespeichert
+- **Neues Design:** warme Papiertöne bei Tag, dunkles Grün bei Nacht, Pastellflächen je
+  Energieart, runde Schrift (Nunito, Hanken Grotesk, Sarina – im Add-on enthalten)
+
 ## 0.8.0
 - **Statuszeilen:** Wallbox, Heizung und Warmwasser zeigen die letzte Entscheidung ihrer
   Regelung mit Grund, z. B. „Absenkung 18,0 °C – außerhalb der Heizzeit 06:00–22:00“.

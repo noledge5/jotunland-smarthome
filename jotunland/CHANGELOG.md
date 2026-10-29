@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.7.0
+- Neues Design: Flächen in Ebenen, feine Ränder, weichere Schatten, getönte Karten je Gerät,
+  größere Zahlen; Auswahlen als Segment-Schalter, schwebende Leiste unten auf dem Handy,
+  Fokusrahmen für Tastatur, ruhiger bei „Bewegung reduzieren“; hell und dunkel
+- Start: Leiste **Jetzt** (Solar, Haus, Batterie, Netz, Wallbox, Warmwasser) zum Wischen,
+  Räume als Kacheln, kompakter Kopf
+
 ## 0.6.1
 - Oberfläche flüssiger: die Geräteerkennung läuft nicht mehr bei jedem Messwert neu, sondern
   nur, wenn Entitäten oder Geräte dazukommen oder wegfallen; neu gezeichnet wird höchstens

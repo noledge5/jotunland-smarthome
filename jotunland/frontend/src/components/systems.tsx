@@ -1,13 +1,15 @@
 import { AlertTriangle, BatteryCharging, BatteryMedium, Car, Droplets, Flame, Sun } from "lucide-react";
 import { useMemo } from "react";
+import type { HassEntities } from "home-assistant-js-websocket";
 import { useEntity, useHass } from "../ha/HassContext";
 import { MYPV } from "../discovery";
 import { fmtClock, startOfDay, useRuns } from "../history";
 import { DayStrip, runSummary } from "./Timeline";
 import { fmtNum, fmtPower, fmtState, fmtTemp, num, unavailable, watts } from "../format";
 import { Badge, Bar, Card, Chips, Empty, Stat, Toggle } from "./ui";
-import { HelperControl } from "./controls";
+import { HelperControl, type Confirm } from "./controls";
 import { useEnergy } from "./EnergyFlow";
+import { Fb, StatusLine, useConfirm, WAIT } from "./feedback";
 
 function Missing({ what }: { what: string }) {
   return <Empty>{what} noch nicht zugeordnet – unter <a href="#/einrichtung">Einrichtung</a> auswählen.</Empty>;
@@ -71,21 +73,38 @@ export function WallboxCard() {
   const sw = useEntity("wallbox.charging_switch");
   const current = useEntity("wallbox.current");
   const mode = useEntity("wallbox.mode");
+  const fb = useConfirm<boolean>();
   if (!status && !power && !sw) return <Card title="Wallbox" icon={Car} tone="bolt"><Missing what="Die Wallbox ist" /></Card>;
   const w = watts(power) ?? 0;
   const charging = w > 100;
+  // Angekommen ist der Befehl erst, wenn die Wallbox selbst lädt (OCPP-Status „Charging“) bzw. aufhört
+  const loads = (e: HassEntities) => (status && /charging|lädt/i.test(e[status.entity_id]?.state ?? "")) || (power ? (watts(e[power.entity_id]) ?? 0) > 100 : false);
   return (
     <Card
       title="Wallbox"
       icon={Car}
       tone="bolt"
-      action={sw?.entity_id.startsWith("switch.") && <Toggle on={sw.state === "on"} disabled={unavailable(sw)} label="Laden" onChange={(v) => callService("switch", v ? "turn_on" : "turn_off", { entity_id: sw.entity_id })} />}
+      action={
+        sw?.entity_id.startsWith("switch.") && (
+          <span className="ctl">
+            <Fb fb={fb} />
+            <Toggle
+              on={fb.sending ? !!fb.value : sw.state === "on"}
+              busy={fb.sending}
+              disabled={unavailable(sw)}
+              label="Laden"
+              onChange={(v) => fb.send(v, (e) => (v ? loads(e) : e[sw.entity_id]?.state === "off" && !loads(e)), WAIT.wallbox, "switch", v ? "turn_on" : "turn_off", { entity_id: sw.entity_id })}
+            />
+          </span>
+        )
+      }
     >
       <div className="stats">
         <Stat big label="Ladeleistung" value={fmtPower(w)} sub={charging ? <Badge tone="ok"><BatteryCharging size={12} /> lädt</Badge> : status ? fmtState(status) : undefined} />
         <Stat label="Geladen" value={session ? fmtState(session) : "–"} />
         <Stat label="Strom" value={current ? fmtState(current) : "–"} />
       </div>
+      <StatusLine name="Jotunland Wallbox" />
       {mode && <HelperControl entity={mode} label="Lademodus" />}
       {sw?.entity_id.startsWith("select.") && (
         <div className="helper wide">
@@ -138,6 +157,12 @@ export function AcThorCard() {
     controls.find((c) => (c.domain === "input_boolean" || c.domain === "switch") && /hand|manu/.test(c.own) && c.entity.state === "on");
   const handSince = hand ? Date.parse(hand.entity.last_changed) : undefined;
   const handButIdle = handSince !== undefined && !full && w < 50 && Date.now() - handSince > 90_000;
+  // Handleistung: angekommen, wenn der Heizstab ±10 % davon aufnimmt. Er fährt ~60 W/s hoch.
+  const handPower = controls.find((c) => (c.domain === "input_number" || c.domain === "number") && c.unit === "W" && /hand|manu/.test(c.own));
+  const powerConfirm: Confirm | undefined =
+    hand && !full && power
+      ? (v) => ({ check: (e) => Math.abs((watts(e[power.entity_id]) ?? 0) - Number(v)) <= Math.max(Number(v) * 0.1, 50), ms: (Number(v) / 60) * 1000 + 30_000 })
+      : undefined;
 
   return (
     <Card title="Warmwasser · AC THOR" icon={Droplets} tone="water" action={w > 50 ? <Badge tone="warn"><Flame size={12} /> heizt</Badge> : <Badge tone="muted">aus</Badge>}>
@@ -146,6 +171,7 @@ export function AcThorCard() {
         <Stat label="Heizstab" value={fmtPower(w)} />
       </div>
       <Bar value={t} max={tt ?? 70} tone="water" />
+      <StatusLine name="Jotunland AC THOR" />
       {full && (
         <p className="hint bad">
           „{full.name}“ ist an – deine Regelung heizt dann nicht, auch nicht im Handbetrieb.
@@ -168,7 +194,13 @@ export function AcThorCard() {
       {controls.length > 0 && (
         <div className="helpers">
           {controls.map((c) => (
-            <HelperControl key={c.id} entity={c.entity} label={c.name.replace(/^(my-?pv\s*)?ac[ -]?thor\s*/i, "") || c.name} />
+            <HelperControl
+              key={c.id}
+              entity={c.entity}
+              label={c.name.replace(/^(my-?pv\s*)?ac[ -]?thor\s*/i, "") || c.name}
+              confirm={c === handPower ? powerConfirm : undefined}
+              blocked={c === handPower && full ? "Speicher voll" : undefined}
+            />
           ))}
         </div>
       )}

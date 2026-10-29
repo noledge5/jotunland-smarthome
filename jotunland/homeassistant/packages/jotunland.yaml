@@ -1,4 +1,4 @@
-# jotunland-package-version: 6
+# jotunland-package-version: 7
 # =============================================================================
 #  Jotunland – Home-Assistant-Paket
 #  Helfer, Automationen und Skripte für PV-Überschussladen, Heizzeiten,
@@ -221,6 +221,9 @@ script:
       ampere:
         description: Ladestrom in Ampere
         example: 10
+      grund:
+        description: Warum – steht als Entscheidung im Logbuch
+        example: Überschuss reicht für 10 A
     sequence:
       - variables:
           geraet: number.anpassen_wallbox_ladestrom
@@ -232,6 +235,13 @@ script:
           entity_id: "{{ geraet }}"
         data:
           value: "{{ ampere | int }}"
+      - if: "{{ grund is defined }}"
+        then:
+          - action: logbook.log
+            data:
+              name: Jotunland Wallbox
+              entity_id: input_select.jotunland_wallbox_modus
+              message: "{{ grund }} → {{ ampere | int }} A"
 
   jotunland_pellet_anfordern:
     alias: "Pelletkessel: Warmwasser anfordern"
@@ -368,12 +378,14 @@ automation:
               - action: script.jotunland_wallbox_strom
                 data:
                   ampere: "{{ wunsch }}"
+                  grund: "{{ modus }}: Überschuss reicht für {{ wunsch }} A"
               - action: script.jotunland_wallbox_start
           - conditions: "{{ modus == 'Min + PV' }}"
             sequence:
               - action: script.jotunland_wallbox_strom
                 data:
                   ampere: "{{ minimum }}"
+                  grund: "Min + PV: Überschuss nur für {{ wunsch }} A, lädt mit Mindeststrom"
               - action: script.jotunland_wallbox_start
         # zu wenig Überschuss im reinen PV-Modus → Pause regelt die nächste Automation
 
@@ -392,6 +404,13 @@ automation:
         state: PV-Überschuss
     actions:
       - action: script.jotunland_wallbox_stop
+      - action: logbook.log
+        data:
+          name: Jotunland Wallbox
+          entity_id: input_select.jotunland_wallbox_modus
+          message: >
+            Pause: Überschuss reicht seit 5 min nicht für den Mindeststrom
+            ({{ states('input_number.jotunland_wallbox_min_ampere') | int(6) }} A)
 
   - id: jotunland_wallbox_modus
     alias: "Wallbox: Modus Sofort / Aus"
@@ -405,9 +424,15 @@ automation:
           - action: script.jotunland_wallbox_strom
             data:
               ampere: "{{ states('input_number.jotunland_wallbox_max_ampere') | int(16) }}"
+              grund: "Sofort: volle Leistung"
           - action: script.jotunland_wallbox_start
         else:
           - action: script.jotunland_wallbox_stop
+          - action: logbook.log
+            data:
+              name: Jotunland Wallbox
+              entity_id: input_select.jotunland_wallbox_modus
+              message: "Modus Aus → Laden pausiert"
 
   - id: jotunland_wallbox_fertig
     alias: "Wallbox: Ladevorgang beendet"
@@ -425,6 +450,11 @@ automation:
         data:
           titel: Auto geladen
           nachricht: "Geladen: {{ states('sensor.anpassen_wallbox_geladen') }} kWh"
+      - action: logbook.log
+        data:
+          name: Jotunland Wallbox
+          entity_id: input_select.jotunland_wallbox_modus
+          message: "Fertig ({{ states('sensor.anpassen_wallbox_geladen') }} kWh) → zurück auf PV-Überschuss"
       # Nach "Sofort" zurück auf PV-Überschuss, damit der nächste Ladevorgang wieder sparsam ist
       - action: input_select.select_option
         target:
@@ -467,11 +497,28 @@ automation:
             {{ today_at(states('input_datetime.jotunland_heizen_start')) <= now()
                < today_at(states('input_datetime.jotunland_heizen_ende'))
                and is_state('input_boolean.jotunland_abwesend', 'off') }}
-      - action: script.jotunland_thermostate
-        data:
           temperatur: >
             {{ states('input_number.jotunland_komfort_temperatur' if komfort
                       else 'input_number.jotunland_eco_temperatur') | float }}
+          zeit: >
+            {{ states('input_datetime.jotunland_heizen_start')[:5] }}–{{ states('input_datetime.jotunland_heizen_ende')[:5] }}
+          # Thermostate, die das Skript nicht anfasst – mit Grund, damit die Sperre sichtbar ist
+          uebersprungen: >
+            {%- set ns = namespace(l=[]) -%}
+            {%- for c in states.climate | rejectattr('state', 'in', ['heat', 'auto']) -%}
+              {%- set ns.l = ns.l + [c.name ~ ' (' ~ ('aus' if c.state == 'off' else 'keine Rückmeldung') ~ ')'] -%}
+            {%- endfor -%}
+            {{ ns.l | join(', ') }}
+      - action: script.jotunland_thermostate
+        data:
+          temperatur: "{{ temperatur }}"
+      - action: logbook.log
+        data:
+          name: Jotunland Heizung
+          entity_id: input_number.jotunland_komfort_temperatur
+          message: >
+            {{ 'Komfort' if komfort else 'Absenkung' }} {{ (temperatur | round(1) | string).replace('.', ',') }} °C –
+            {{ 'Heizzeit ' ~ zeit if komfort else ('abwesend' if is_state('input_boolean.jotunland_abwesend', 'on') else 'außerhalb der Heizzeit ' ~ zeit) }}{{ ' · übersprungen: ' ~ uebersprungen if uebersprungen }}
 
   - id: jotunland_sommerbetrieb
     alias: "Heizung: Sommerbetrieb"
@@ -500,7 +547,17 @@ automation:
                     entity_id: "{{ repeat.item }}"
                   data:
                     hvac_mode: "off"
+          - action: logbook.log
+            data:
+              name: Jotunland Heizung
+              entity_id: input_number.jotunland_komfort_temperatur
+              message: "Sommerbetrieb an → {{ heizend | count }} Thermostat(e) aus"
         else:
+          - action: logbook.log
+            data:
+              name: Jotunland Heizung
+              entity_id: input_number.jotunland_komfort_temperatur
+              message: "Sommerbetrieb aus → Thermostate wieder an"
           - if: "{{ expand('scene.jotunland_vor_sommer') | count > 0 }}"
             then:
               - action: scene.turn_on

@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.8.0
+- **Statuszeilen:** Wallbox, Heizung und Warmwasser zeigen die letzte Entscheidung ihrer
+  Regelung mit Grund, z. B. „Absenkung 18,0 °C – außerhalb der Heizzeit 06:00–22:00“.
+  Live über das Logbuch, Tippen öffnet den Verlauf
+- Wallbox- und Heizregeln schreiben ihre Entscheidungen ins Logbuch, auch übersprungene
+  Thermostate mit Grund (Paket-Version 7 – im Assistenten „Aktualisieren“)
+- **Rückmeldung beim Tippen:** „wird gesendet …“, bis das Gerät den Wert selbst meldet –
+  Thermostat 15 s, Schalter/Licht 10 s, Wallbox bis sie lädt (60 s), AC THOR bis der
+  Heizstab ±10 % der Handleistung aufnimmt. Sonst „keine Rückmeldung“ und die Anzeige
+  springt auf den echten Wert zurück
+- **Sperren am Bedienelement:** „gesperrt: Speicher voll“ an der Handleistung,
+  „gesperrt: Fenster offen“ / „Sommerbetrieb“ am ausgeschalteten Thermostat
+
 ## 0.7.0
 - Neues Design: Flächen in Ebenen, feine Ränder, weichere Schatten, getönte Karten je Gerät,
   größere Zahlen; Auswahlen als Segment-Schalter, schwebende Leiste unten auf dem Handy,

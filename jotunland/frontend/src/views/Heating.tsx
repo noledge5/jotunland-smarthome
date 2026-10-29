@@ -3,6 +3,7 @@ import { useHass } from "../ha/HassContext";
 import { Card, Empty } from "../components/ui";
 import { HelperControl, Thermostat } from "../components/controls";
 import { AcThorCard, PelletCard } from "../components/systems";
+import { StatusLine } from "../components/feedback";
 
 const HEATING_HELPERS = [
   "input_number.jotunland_komfort_temperatur",
@@ -39,6 +40,7 @@ export function Heating() {
         <AcThorCard />
         {helpers.length > 0 && (
           <Card title="Heizprogramm" icon={SlidersHorizontal}>
+            <StatusLine name="Jotunland Heizung" />
             <div className="helpers">
               {helpers.map((h) => (
                 <HelperControl key={h.entity_id} entity={h} />

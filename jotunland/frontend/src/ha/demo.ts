@@ -285,8 +285,14 @@ export function startDemo(onChange: (s: HassEntities) => void): DemoHome {
         } else if (service === "turn_on") set(id, "on", data?.brightness_pct ? { brightness: Math.round((Number(data.brightness_pct) / 100) * 255) } : undefined);
         else if (service === "turn_off") set(id, "off");
         else if (service === "trigger") set(id, undefined, { last_triggered: now() });
-        else if (service === "set_temperature") set(id, undefined, { temperature: data?.temperature });
-        else if (service === "set_hvac_mode") set(id, String(data?.hvac_mode));
+        else if (service === "set_temperature" || service === "set_hvac_mode") {
+          // Zigbee-Thermostate melden sich erst nach ein paar Sekunden zurück
+          window.setTimeout(() => {
+            if (service === "set_temperature") set(id, undefined, { temperature: data?.temperature });
+            else set(id, String(data?.hvac_mode));
+            push();
+          }, 2000);
+        }
         else if (service === "set_value") set(id, String(data?.value));
         else if (service === "select_option") set(id, String(data?.option));
         else if (service === "set_datetime") set(id, String(data?.time));
@@ -357,10 +363,14 @@ function demoLogbook(start: number) {
       for (let h = a; h < b; h += 1 / 60) {
         list.push({ when: at(day, h), name: "Wallbox: PV-Überschussladen", message: "triggered by time pattern", entity_id: "automation.jotunland_wallbox_pv_ueberschuss", domain: "automation", source: "time pattern" });
       }
+      list.push({ when: at(day, a), name: "Jotunland Wallbox", message: "PV-Überschuss: Überschuss reicht für 8 A → 8 A", entity_id: "input_select.jotunland_wallbox_modus" });
       list.push({ when: at(day, b + 0.05), name: "Wallbox: Pause bei zu wenig Sonne", message: "triggered by template", entity_id: "automation.jotunland_wallbox_pv_pause", domain: "automation" });
+      list.push({ when: at(day, b + 0.05), name: "Jotunland Wallbox", message: "Pause: Überschuss reicht seit 5 min nicht für den Mindeststrom (6 A)", entity_id: "input_select.jotunland_wallbox_modus" });
     }
     list.push({ when: at(day, 6), name: "Heizung: Heizzeiten", message: "triggered by time", entity_id: "automation.jotunland_heizzeiten", domain: "automation" });
+    list.push({ when: at(day, 6), name: "Jotunland Heizung", message: "Komfort 21,0 °C – Heizzeit 06:00–22:00 · übersprungen: Schlafzimmer (aus)", entity_id: "input_number.jotunland_komfort_temperatur" });
     list.push({ when: at(day, 22), name: "Heizung: Heizzeiten", message: "triggered by time", entity_id: "automation.jotunland_heizzeiten", domain: "automation" });
+    list.push({ when: at(day, 22), name: "Jotunland Heizung", message: "Absenkung 18,0 °C – außerhalb der Heizzeit 06:00–22:00", entity_id: "input_number.jotunland_komfort_temperatur" });
     if (rand(day / DAY_MS + 7) > 0.5) {
       list.push({ when: at(day, 18.5), entity_id: "input_select.ac_thor_modus", state: "Hand", context_user_id: "demo" });
       list.push({ when: at(day, 18.5), name: "Jotunland AC THOR", message: "Hand: Sollwert 3000 W", entity_id: "sensor.ac_thor_leistung" });

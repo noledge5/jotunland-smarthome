@@ -5,6 +5,7 @@ import { useEntity, useHass } from "../ha/HassContext";
 import { Card, Empty, Toggle } from "../components/ui";
 import { EnergyFlow, useEnergy } from "../components/EnergyFlow";
 import { AcThorCard, PelletCard, WallboxCard } from "../components/systems";
+import { StatusLine } from "../components/feedback";
 import { fmtNum, fmtPower, fmtTarget, fmtTemp, name, num } from "../format";
 
 function greeting() {
@@ -100,6 +101,7 @@ export function Overview() {
               })}
             </div>
           )}
+          <StatusLine name="Jotunland Heizung" />
         </Card>
 
         <Card title="Energie jetzt" icon={Zap} tone="sun">

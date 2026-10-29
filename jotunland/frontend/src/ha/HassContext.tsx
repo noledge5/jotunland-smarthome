@@ -35,10 +35,19 @@ interface HassCtx {
   toasts: Toast[];
   notify: (text: string, tone?: Toast["tone"]) => void;
   ws: <T>(msg: Record<string, unknown>) => Promise<T>;
+  /** Letzte Entscheidung je Regelung (Logbuch-Name „Jotunland …“) */
+  decisions: Record<string, Decision>;
   refreshRegistry: () => Promise<void>;
   setOverride: (slot: string, entityId: string | null) => Promise<void>;
   applySettings: (s: ConnSettings | null) => void;
 }
+
+export interface Decision {
+  message: string;
+  when: number;
+}
+
+const DECISION = /^jotunland /i;
 
 export interface Toast {
   id: number;
@@ -71,6 +80,7 @@ export function HassProvider({ children }: { children: ReactNode }) {
   const [registryAvailable, setRegistryAvailable] = useState(true);
   const [config, setConfig] = useState<JotunConfig>(EMPTY_CONFIG);
   const [overrides, setOverrides] = useState<Mapping>(localMapping);
+  const [decisions, setDecisions] = useState<Record<string, Decision>>({});
   const conn = useRef<Connection | null>(null);
   const demo = useRef<DemoHome | null>(null);
 
@@ -117,6 +127,29 @@ export function HassProvider({ children }: { children: ReactNode }) {
     }
   }, [ws]);
 
+  const addDecisions = useCallback((list: { name?: string; message?: string; when: number }[]) => {
+    setDecisions((prev) => {
+      let next = prev;
+      for (const e of list) {
+        if (!e.name || !e.message || !DECISION.test(e.name) || (next[e.name]?.when ?? 0) > e.when) continue;
+        if (next === prev) next = { ...prev };
+        next[e.name] = { message: e.message.trim(), when: e.when };
+      }
+      return next;
+    });
+  }, []);
+
+  /** Heizzeiten entscheiden nur zweimal am Tag – deshalb 24 h zurück */
+  const loadDecisions = useCallback(async () => {
+    try {
+      const start = new Date(Date.now() - 86_400_000).toISOString();
+      const list = await ws<{ name?: string; message?: string; when: number }[]>({ type: "logbook/get_events", start_time: start, end_time: new Date().toISOString() });
+      addDecisions(list.map((e) => ({ ...e, when: e.when * 1000 })));
+    } catch {
+      /* ohne Logbuch keine Statuszeilen */
+    }
+  }, [ws, addDecisions]);
+
   const addonKnown = addon !== undefined;
   const isAddon = !!addon;
 
@@ -128,6 +161,7 @@ export function HassProvider({ children }: { children: ReactNode }) {
     }
     let cancelled = false;
     let unsub: (() => void) | undefined;
+    let unsubLog: (() => void) | undefined;
     // Home Assistant schickt jede Änderung einzeln – höchstens 5× pro Sekunde neu zeichnen
     let timer: number | undefined;
     let latest: HassEntities = {};
@@ -145,6 +179,7 @@ export function HassProvider({ children }: { children: ReactNode }) {
       demo.current = startDemo((s) => !cancelled && setEntities(s));
       setStatus("connected");
       refreshRegistry();
+      loadDecisions();
       return () => {
         cancelled = true;
         demo.current?.stop();
@@ -157,11 +192,25 @@ export function HassProvider({ children }: { children: ReactNode }) {
         if (cancelled) return c.close();
         conn.current = c;
         c.addEventListener("disconnected", () => setStatus("reconnecting"));
-        c.addEventListener("ready", () => setStatus("connected"));
+        c.addEventListener("ready", () => {
+          setStatus("connected");
+          loadDecisions();
+        });
         unsub = subscribeEntities(c, onEntities);
+        c.subscribeEvents<{ data: { name?: string; message?: string }; time_fired: string }>(
+          (ev) => addDecisions([{ ...ev.data, when: Date.parse(ev.time_fired) }]),
+          "logbook_entry",
+        ).then(
+          (u) => {
+            if (cancelled) u();
+            else unsubLog = u;
+          },
+          () => undefined, // ohne Admin-Rechte nur die geladenen Entscheidungen
+        );
         setStatus("connected");
         refreshRegistry();
         loadOverrides();
+        loadDecisions();
       })
       .catch((err: unknown) => {
         if (cancelled) return;
@@ -174,10 +223,11 @@ export function HassProvider({ children }: { children: ReactNode }) {
       cancelled = true;
       window.clearTimeout(timer);
       unsub?.();
+      unsubLog?.();
       conn.current?.close();
       conn.current = null;
     };
-  }, [settings, addonKnown, isAddon, refreshRegistry, loadOverrides]);
+  }, [settings, addonKnown, isAddon, refreshRegistry, loadOverrides, loadDecisions, addDecisions]);
 
   const [toasts, setToasts] = useState<Toast[]>([]);
   const notify = useCallback((text: string, tone: Toast["tone"] = "info") => {
@@ -280,6 +330,7 @@ export function HassProvider({ children }: { children: ReactNode }) {
     toasts,
     notify,
     ws,
+    decisions,
     refreshRegistry,
     setOverride,
     applySettings,

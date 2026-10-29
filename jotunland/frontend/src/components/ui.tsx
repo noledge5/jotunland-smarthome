@@ -27,14 +27,15 @@ export function Card({ title, icon: Icon, action, children, className = "", tone
   );
 }
 
-export function Toggle({ on, onChange, disabled, label }: { on: boolean; onChange: (v: boolean) => void; disabled?: boolean; label?: string }) {
+export function Toggle({ on, onChange, disabled, label, busy }: { on: boolean; onChange: (v: boolean) => void; disabled?: boolean; label?: string; busy?: boolean }) {
   return (
     <button
       type="button"
       role="switch"
       aria-checked={on}
       aria-label={label}
-      className={`toggle ${on ? "on" : ""}`}
+      aria-busy={busy || undefined}
+      className={`toggle ${on ? "on" : ""} ${busy ? "sending" : ""}`}
       disabled={disabled}
       onClick={(ev) => {
         ev.stopPropagation();

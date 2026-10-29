@@ -166,6 +166,25 @@ code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-
 
 .hint { margin: 0; font-size: 13px; color: var(--muted); }
 .hint.bad { color: var(--bad); }
+
+/* Statuszeile: letzte Entscheidung der Regelung */
+.status-line {
+  display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: var(--radius-sm);
+  background: var(--surface-2); color: var(--text); font-size: 13px; text-decoration: none; min-width: 0;
+}
+.status-line svg { flex-shrink: 0; color: var(--accent); }
+.status-line span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.status-line time { flex-shrink: 0; color: var(--muted); font-size: 12px; }
+.status-line:hover span { white-space: normal; }
+
+/* Rückmeldung und Sperre direkt am Bedienelement */
+.fb { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--muted); white-space: nowrap; }
+.fb.sending { animation: breathe 1.4s ease-in-out infinite; }
+.fb.bad { color: var(--bad); }
+.fb.blocked { color: var(--warn); }
+.sending { animation: breathe 1.4s ease-in-out infinite; }
+@keyframes breathe { 50% { opacity: 0.45; } }
+.ctl { display: inline-flex; align-items: center; gap: 8px; }
 .lead { display: flex; gap: 8px; align-items: flex-start; color: var(--muted); margin: 0; max-width: 820px; }
 .lead svg { flex-shrink: 0; margin-top: 3px; color: var(--accent); }
 .empty { margin: 0; color: var(--muted); font-size: 14px; }

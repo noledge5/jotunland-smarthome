@@ -128,6 +128,16 @@ export function HassProvider({ children }: { children: ReactNode }) {
     }
     let cancelled = false;
     let unsub: (() => void) | undefined;
+    // Home Assistant schickt jede Änderung einzeln – höchstens 5× pro Sekunde neu zeichnen
+    let timer: number | undefined;
+    let latest: HassEntities = {};
+    const onEntities = (s: HassEntities) => {
+      latest = s;
+      timer ??= window.setTimeout(() => {
+        timer = undefined;
+        if (!cancelled) setEntities(latest);
+      }, 200);
+    };
     setStatus("connecting");
     setError(undefined);
 
@@ -148,7 +158,7 @@ export function HassProvider({ children }: { children: ReactNode }) {
         conn.current = c;
         c.addEventListener("disconnected", () => setStatus("reconnecting"));
         c.addEventListener("ready", () => setStatus("connected"));
-        unsub = subscribeEntities(c, (s) => setEntities(s));
+        unsub = subscribeEntities(c, onEntities);
         setStatus("connected");
         refreshRegistry();
         loadOverrides();
@@ -162,6 +172,7 @@ export function HassProvider({ children }: { children: ReactNode }) {
 
     return () => {
       cancelled = true;
+      window.clearTimeout(timer);
       unsub?.();
       conn.current?.close();
       conn.current = null;
@@ -235,10 +246,15 @@ export function HassProvider({ children }: { children: ReactNode }) {
     return m;
   }, [regEntities, devices]);
 
-  const infos = useMemo(() => buildInfos(entities, meta, devices), [entities, meta, devices]);
+  const infoCache = useMemo(() => new WeakMap<HassEntity, EntityInfo>(), [meta, devices]);
+  const infos = useMemo(() => buildInfos(entities, meta, devices, infoCache), [entities, meta, devices, infoCache]);
+  // Zuordnung und Räume hängen an der Menge der Entitäten, nicht an ihren Messwerten – sonst läuft
+  // die ganze Erkennung bei jeder Änderung neu (und ein kurz "unavailable" Sensor wechselt die Zuordnung).
+  const idsKey = useMemo(() => Object.keys(entities).join(), [entities]);
+  const shapeInfos = useMemo(() => infos, [idsKey, meta, devices]); // absichtlich ohne `infos`
   const areaName = useCallback((id?: string | null) => areas.find((a) => a.area_id === id)?.name, [areas]);
-  const { mapping, source } = useMemo(() => resolveMapping(config, overrides, infos), [config, overrides, infos]);
-  const rooms = useMemo(() => resolveRooms(config, infos, areaName), [config, infos, areaName]);
+  const { mapping, source } = useMemo(() => resolveMapping(config, overrides, shapeInfos), [config, overrides, shapeInfos]);
+  const rooms = useMemo(() => resolveRooms(config, shapeInfos, areaName), [config, shapeInfos, areaName]);
 
   const value: HassCtx = {
     status,

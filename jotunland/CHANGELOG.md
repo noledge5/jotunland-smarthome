@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.7.0
+- Neues Design: Flächen in Ebenen, feine Ränder, weichere Schatten, getönte Karten je Gerät,
+  größere Zahlen; Auswahlen als Segment-Schalter, schwebende Leiste unten auf dem Handy,
+  Fokusrahmen für Tastatur, ruhiger bei „Bewegung reduzieren“; hell und dunkel
+- Start: Leiste **Jetzt** (Solar, Haus, Batterie, Netz, Wallbox, Warmwasser) zum Wischen,
+  Räume als Kacheln, kompakter Kopf
+
+## 0.6.1
+- Oberfläche flüssiger: die Geräteerkennung läuft nicht mehr bei jedem Messwert neu, sondern
+  nur, wenn Entitäten oder Geräte dazukommen oder wegfallen; neu gezeichnet wird höchstens
+  5× pro Sekunde. Eine Zuordnung wechselt nicht mehr, nur weil ein Sensor kurz „nicht
+  verfügbar“ ist
+- Meldungen (Kessel-Störung, Pelletvorrat, Laden fertig …) gehen an **jedes** Handy mit der
+  Home-Assistant-App statt nur an eines (Paket-Version 6)
+
 ## 0.6.0
 - Hausregeln im Repo: jede `*.yaml` in `jotunland/haus/` (z. B. die AC-THOR-Regelung) wird
   beim Installieren/Aktualisieren mit nach `/config/packages/` gespielt – mit Sicherung,

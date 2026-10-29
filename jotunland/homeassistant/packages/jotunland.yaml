@@ -287,18 +287,20 @@ script:
         data:
           title: "{{ titel }}"
           message: "{{ nachricht }}"
-      # … und auf jedes Handy mit der Home-Assistant-App (notify.notify erreicht nur eines).
-      # Der Dienst heißt notify.mobile_app_<Gerätename>; neue Handys kommen automatisch dazu.
-      - repeat:
-          for_each: >-
-            {{ integration_entities('mobile_app') | map('device_id') | reject('none') | unique
-               | map('device_attr', 'name') | reject('none') | map('slugify') | unique | list }}
-          sequence:
-            - action: "notify.mobile_app_{{ repeat.item }}"
-              continue_on_error: true
-              data:
-                title: "{{ titel }}"
-                message: "{{ nachricht }}"
+      # … und auf jedes Handy mit der Home-Assistant-App. Jedes Handy hat eine eigene notify-Entität;
+      # die alten Dienste notify.notify / notify.mobile_app_<name> erreichen nur eines (bei gleichem
+      # Gerätenamen teilen sich zwei Handys sogar einen Dienst). Neue Handys kommen automatisch dazu.
+      - variables:
+          handys: "{{ integration_entities('mobile_app') | select('match', 'notify\\.') | list }}"
+      - if: "{{ handys | count > 0 }}"
+        then:
+          - action: notify.send_message
+            continue_on_error: true
+            target:
+              entity_id: "{{ handys }}"
+            data:
+              title: "{{ titel }}"
+              message: "{{ nachricht }}"
 
   # ---------------------------------------------------- Schnellaktionen ----
   jotunland_alles_aus:

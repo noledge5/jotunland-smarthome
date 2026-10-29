@@ -292,7 +292,7 @@ script:
       - repeat:
           for_each: >-
             {{ integration_entities('mobile_app') | map('device_id') | reject('none') | unique
-               | map('device_attr', 'name') | reject('none') | map('slugify') | list }}
+               | map('device_attr', 'name') | reject('none') | map('slugify') | unique | list }}
           sequence:
             - action: "notify.mobile_app_{{ repeat.item }}"
               continue_on_error: true

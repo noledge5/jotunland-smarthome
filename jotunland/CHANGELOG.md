@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.10.0
+- **Tag als Standard:** die helle Ansicht gilt jetzt immer; Nacht oder „wie das Gerät“
+  unter Einrichtung → Darstellung
+- **Energie in Bewegung:** auf dem Haus wandern Punkte durch die Leitungen – PV vom Dach,
+  Netz (Bezug/Einspeisung), Batterie (Laden/Entladen), Heizstab und Wallbox, schneller bei
+  mehr Leistung. Die Sonne dreht sich, solange PV erzeugt; oben links steht der Überschuss
+  und wohin er geht
+- **Ziehen auch auf Tablets:** die Schilder stehen bis 520 px Breite auf dem Haus und lassen
+  sich verschieben (vorher erst ab 760 px)
+- **Anleitungen** unter Einrichtung: Zigbee2MQTT öffnen und anlernen, Sonoff-Thermostat,
+  Enphase, Wallbox per OCPP, AC THOR, Fröling – kurz zusammengefasst mit Links zum Original
+
 ## 0.9.0
 - **Neue Startseite „Haus“:** das ganze Haus als 2,5D-Abbildung mit PV, Netz, Batterie,
   Warmwasser, Wallbox und Räumen. Bauteile färben sich, solange sie arbeiten; das Netzkabel

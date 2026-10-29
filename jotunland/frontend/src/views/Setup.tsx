@@ -8,6 +8,22 @@ import { fmtState, name, norm } from "../format";
 import { renderPackage } from "../haPackage";
 import { useSetupActions } from "../setup";
 import { Wizard } from "./Wizard";
+import { Guides } from "../components/Guides";
+import { readTheme, setTheme, type Theme } from "../theme";
+
+function ThemeTab() {
+  const [theme, set] = useState<Theme>(readTheme);
+  return (
+    <Card title="Darstellung">
+      <Chips
+        value={theme}
+        onChange={(t) => { setTheme(t as Theme); set(t as Theme); }}
+        options={[{ value: "tag", label: "Tag" }, { value: "nacht", label: "Nacht" }, { value: "auto", label: "Wie das Gerät" }]}
+      />
+      <p className="hint">Gilt für diesen Browser. „Wie das Gerät“ folgt der Hell/Dunkel-Einstellung von Handy oder Tablet.</p>
+    </Card>
+  );
+}
 
 const SOURCE_LABEL = { manual: "von dir gewählt", config: "config.json", auto: "automatisch erkannt", none: "fehlt" } as const;
 const SOURCE_TONE = { manual: "ok", config: "info", auto: "info", none: "bad" } as const;
@@ -266,6 +282,8 @@ export function Setup() {
           { value: "package", label: "HA-Paket" },
           { value: "entities", label: "Entitäten" },
           { value: "connection", label: "Verbindung" },
+          { value: "theme", label: "Darstellung" },
+          { value: "guides", label: "Anleitungen" },
         ]}
       />
       <div className="tab-body">
@@ -275,6 +293,8 @@ export function Setup() {
         {tab === "package" && <PackageTab />}
         {tab === "entities" && <EntitiesTab />}
         {tab === "connection" && <ConnectionTab />}
+        {tab === "theme" && <ThemeTab />}
+        {tab === "guides" && <Guides />}
       </div>
     </div>
   );

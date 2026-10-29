@@ -38,14 +38,33 @@ const dot = (x: number, y: number, z: number, r: number, cls: string, attrs = ""
   return `<circle class="${cls}" cx="${cx}" cy="${cy}" r="${r}"${attrs}/>`;
 };
 
-interface ArtState { pv: boolean; bat: boolean; tank: boolean; room: boolean; car: boolean; plugged: boolean; grid: number }
+/** Leistungen in W: bat + = Entladen, grid + = Bezug */
+interface ArtState { pv: number; bat: number; tank: number; car: number; grid: number; room: boolean; plugged: boolean }
+
+// Energie wandert als Punkte durch die Leitung, schneller bei mehr Leistung. Pfad in Richtung des Flusses, `rev` dreht um.
+// Der SVG-Text hängt nur an diesen Stufen – React tauscht das SVG nur, wenn sich eine Stufe ändert, die Punkte laufen sonst weiter.
+const live = (w: number) => Math.abs(w) >= 50;
+const speed = (w: number) => (w < 500 ? 2.4 : w < 2000 ? 1.4 : w < 5000 ? 0.9 : 0.6);
+const flow = (d: string, tone: string, w: number, rev = false) => {
+  if (!live(w)) return `<path class="wire" d="${d}"/>`;
+  const a = ` d="${d}" style="animation-duration:${speed(Math.abs(w))}s"`;
+  const r = rev ? " reverse" : "";
+  return `<path class="wire" d="${d}"/><path class="dots${r}"${a}/><path class="dots fill${r}" data-tone="${tone}"${a}/>`;
+};
+// Zählerschrank: hier treffen sich alle Leitungen (rechts an der Hauswand)
+const M = pt(352, 231, 70);
 
 /** Das Haus als SVG-Text. Ein Bauteil bekommt `on` (Fläche in seiner Energieart), solange es arbeitet. */
 function houseSvg(s: ArtState) {
-  const on = (v: boolean) => (v ? " on" : "");
+  const on = (v: boolean | number) => ((typeof v === "number" ? live(v) : v) ? " on" : "");
+  const rays = Array.from({ length: 8 }, (_, i) => {
+    const c = Math.cos((i * Math.PI) / 4), si = Math.sin((i * Math.PI) / 4);
+    return `<line x1="${(880 + 38 * c).toFixed(1)}" y1="${(72 + 38 * si).toFixed(1)}" x2="${(880 + 48 * c).toFixed(1)}" y2="${(72 + 48 * si).toFixed(1)}"/>`;
+  }).join("");
   const panels = [[196, 222], [164, 190]].flatMap(([y0, y1]) => [[172, 210], [214, 252], [256, 294], [298, 336]].map(([x0, x1]) => panel(x0, x1, y0, y1, on(s.pv))));
   const car = ` data-tone="car"`;
   return [
+    live(s.pv) ? `<g class="rays">${rays}</g>` : "",
     `<circle class="part${on(s.pv)}" data-tone="sun" cx="880" cy="72" r="30"/>`,
     `<path class="part" d="M70 96 a18 18 0 0 1 16 -26 a24 24 0 0 1 44 -6 a16 16 0 0 1 26 14 a14 14 0 0 1 -4 26 h-72 a12 12 0 0 1 -10 -8 Z"/>`,
     // Sockel mit Rasen, Weg und Einfahrt
@@ -83,11 +102,15 @@ function houseSvg(s: ArtState) {
     cyl(428, 216, 6, 66, 12, `part${on(s.tank)}`),
     box(446, 464, 206, 224, 6, 48),
     dot(455, 224, 26, 5, "part"),
-    // Netzkabel zum Haus, läuft bei Bezug zum Haus, bei Einspeisung zum Mast
-    `<path class="flow${on(Math.abs(s.grid) >= 50)}${s.grid < 0 ? " reverse" : ""}" d="M${pt(500, 20, 166)} Q${pt(440, 70, 120)} ${pt(360, 100, 122)}"/>`,
+    // Leitungen: Netz (Bezug zum Haus, Einspeisung zum Mast), PV vom Dach, Batterie, Heizstab, Wallbox
+    flow(`M${pt(500, 20, 166)} Q${pt(440, 70, 120)} ${pt(360, 100, 122)}`, "grid", s.grid, s.grid < 0),
+    flow(`M${pt(300, 242, 119)} Q${pt(352, 240, 112)} ${M}`, "sun", s.pv),
+    flow(`M${M} Q${pt(372, 238, 72)} ${pt(392, 224, 40)}`, "battery", s.bat, s.bat > 0),
+    flow(`M${M} Q${pt(404, 240, 84)} ${pt(428, 228, 50)}`, "heat", s.tank),
+    flow(`M${M} L${pt(352, 236, 0)} L${pt(141, 236, 0)} L${pt(141, 266, 0)}`, "car", s.car),
     // Einfahrt: Wallbox-Säule und Auto
     box(136, 146, 266, 276, 0, 44, `part${on(s.car)}`, `part shade${on(s.car)}`, `part${on(s.car)}`, car),
-    s.plugged ? `<path class="flow${on(s.car)}" d="M${pt(141, 276, 30)} Q${pt(132, 296, 4)} ${pt(120, 280, 18)}"/>` : "",
+    s.plugged ? `<path class="stroke" d="M${pt(141, 276, 30)} Q${pt(132, 296, 4)} ${pt(120, 280, 18)}"/>` : "",
     box(26, 124, 262, 298, 8, 26, `part${on(s.car)}`, `part shade${on(s.car)}`, `part${on(s.car)}`, car),
     poly("part glass", [[50, 298, 26], [104, 298, 26], [94, 298, 42], [62, 298, 42]]),
     poly(`part shade${on(s.car)}`, [[104, 266, 26], [104, 298, 26], [94, 298, 42], [94, 266, 42]], car),
@@ -312,24 +335,25 @@ export function House() {
   const drag = useRef<{ id: string; isNew: boolean; x0: number; y0: number; moved: boolean; inside: boolean } | null>(null);
 
   useEffect(() => {
-    const ro = new ResizeObserver(([e]) => setNarrow(e.contentRect.width < 760));
+    const ro = new ResizeObserver(([e]) => setNarrow(e.contentRect.width < 520));
     ro.observe(fig.current!);
     return () => ro.disconnect();
   }, []);
 
   const plugged = !!wbStatus && /charging|preparing|suspended|finishing|connected|lädt|angesteckt/i.test(wbStatus.state);
-  const s: ArtState = {
-    pv: (n.pv ?? 0) > 50,
-    bat: Math.abs(n.battery ?? 0) > 20,
-    tank: (n.acthor ?? 0) > 50,
-    room: rooms.some((r) => entities[r.climate]?.attributes.hvac_action === "heating"),
-    car: (n.wallbox ?? 0) > 100,
-    plugged,
+  const svg = houseSvg({
+    pv: n.pv ?? 0,
+    bat: n.battery ?? 0,
+    tank: n.acthor ?? 0,
+    car: n.wallbox ?? 0,
     grid: n.grid ?? 0,
-  };
-  const key = JSON.stringify({ ...s, grid: Math.abs(s.grid) < 50 ? 0 : Math.sign(s.grid) });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const svg = useMemo(() => houseSvg(s), [key]);
+    room: rooms.some((r) => entities[r.climate]?.attributes.hvac_action === "heating"),
+    plugged,
+  });
+  // Überschuss = was die PV mehr liefert, als das Haus braucht: geht in die Batterie oder ins Netz
+  const toBattery = Math.max(0, -(n.battery ?? 0));
+  const toGrid = Math.max(0, -(n.grid ?? 0));
+  const surplus = toBattery + toGrid;
 
   const shown = draft ?? layout;
   const placed = pins.filter((p) => shown[p.id]);
@@ -435,6 +459,12 @@ export function House() {
             );
           })}
         </ul>
+        {surplus >= 50 && (
+          <p className="house-surplus" role="status">
+            <span>Überschuss</span> <b>{fmtPower(surplus)}</b>
+            <small>{[toBattery >= 50 && `${fmtPower(toBattery)} in die Batterie`, toGrid >= 50 && `${fmtPower(toGrid)} ins Netz`].filter(Boolean).join(" · ")}</small>
+          </p>
+        )}
         <div className="house-bar">
           {editing && <button type="button" className="btn small" onClick={reset}>Zurücksetzen</button>}
           <button type="button" className={`btn small ${editing ? "primary" : ""}`} onClick={() => { setEditing(!editing); setOpen(null); }}>

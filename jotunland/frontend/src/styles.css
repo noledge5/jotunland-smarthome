@@ -44,32 +44,31 @@
   --font-script: "Sarina", "Nunito", cursive;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    color-scheme: dark;
-    --bg: #1b2310;
-    --bg-2: #1b2310;
-    --surface: #253017;
-    --surface-2: #1b2310;
-    --surface-3: #1f2914;
-    --border: #5d6b48;
-    --border-strong: #c9b89c;
-    --line-soft: #5d6b48;
-    --text: #fffff3;
-    --muted: #d8ccb4;
-    --disabled: #6e7a5a;
-    --on-heat: #253017;
-    --fire: #c49a6c;
-    --water: #c49a6c;
-    --warn: #c49a6c;
-    --bad: #f08a6c;
-    --art-shade: #1f2914;
-    --art-roof: #4b5838;
-    --art-roof-shade: #36412a;
-    --art-leaf: #64803f;
-    --art-leaf-shade: #4f6832;
-    --shadow-dialog: 0 12px 40px -12px rgba(0, 0, 0, 0.6);
-  }
+/* Nacht: per Einrichtung → Darstellung (Standard Tag, siehe theme.ts) */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #1b2310;
+  --bg-2: #1b2310;
+  --surface: #253017;
+  --surface-2: #1b2310;
+  --surface-3: #1f2914;
+  --border: #5d6b48;
+  --border-strong: #c9b89c;
+  --line-soft: #5d6b48;
+  --text: #fffff3;
+  --muted: #d8ccb4;
+  --disabled: #6e7a5a;
+  --on-heat: #253017;
+  --fire: #c49a6c;
+  --water: #c49a6c;
+  --warn: #c49a6c;
+  --bad: #f08a6c;
+  --art-shade: #1f2914;
+  --art-roof: #4b5838;
+  --art-roof-shade: #36412a;
+  --art-leaf: #64803f;
+  --art-leaf-shade: #4f6832;
+  --shadow-dialog: 0 12px 40px -12px rgba(0, 0, 0, 0.6);
 }
 
 * { box-sizing: border-box; }
@@ -554,9 +553,23 @@ textarea.input { resize: vertical; font-family: ui-monospace, monospace; font-si
 .house-art .stroke, .house-art .flow { fill: none; stroke: var(--border-strong); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .house-art .thin { stroke-width: 1.5; }
 .house-art .wide { stroke-width: 4; }
-.house-art .flow.on { stroke-dasharray: 2 8; animation: house-flow 0.9s linear infinite; }
-.house-art .flow.reverse { animation-direction: reverse; }
-@keyframes house-flow { to { stroke-dashoffset: -10; } }
+.house-art [data-tone="grid"] { --t: var(--grid); }
+/* Leitungen: ruhig eine dünne Linie, mit Energie wandernde Punkte in der Farbe der Energieart */
+.house-art .wire { fill: none; stroke: var(--line-soft); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.house-art .dots { fill: none; stroke: var(--border-strong); stroke-width: 9; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 0 18; animation: house-dots 1.4s linear infinite; }
+.house-art .dots.fill { stroke: var(--t); stroke-width: 5; }
+.house-art .reverse { animation-direction: reverse; }
+@keyframes house-dots { to { stroke-dashoffset: -18; } }
+.house-art .rays { stroke: var(--border-strong); stroke-width: 3; stroke-linecap: round; transform-origin: 880px 72px; animation: house-spin 16s linear infinite; }
+@keyframes house-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .house-art .dots, .house-art .rays { animation: none !important; } }
+.house-surplus {
+  position: absolute; top: 0; left: 0; z-index: 2; margin: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; max-width: 60%;
+  padding: 6px 12px; border-radius: var(--radius); background: var(--sun); color: var(--on-tone); box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+.house-surplus span { font-size: 12px; }
+.house-surplus b { font: 800 17px/20px var(--font-display); letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+.house-surplus small { flex-basis: 100%; font-size: 12px; }
 
 .house-pins { list-style: none; margin: 0; padding: 0; }
 .house-pin {
@@ -598,7 +611,14 @@ textarea.input { resize: vertical; font-family: ui-monospace, monospace; font-si
 }
 .house-chip b { font-weight: 600; }
 
-@container (max-width: 760px) {
+@container (max-width: 900px) {
+  .house-pin-head { padding: 4px 9px; }
+  .house-pin.has-ctl .house-pin-head { padding-right: 26px; }
+  .house-pin-name { font-size: 11px; line-height: 15px; }
+  .house-pin-value { font-size: 15px; line-height: 18px; }
+}
+@container (max-width: 520px) {
+  .house-surplus { position: static; max-width: none; margin-bottom: 8px; }
   .house-pins { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin-top: 12px; }
   .house-pin { position: relative; left: auto; top: auto; transform: none; white-space: normal; }
   .house-pin.open { grid-column: 1 / -1; width: auto; }
@@ -616,4 +636,22 @@ textarea.input { resize: vertical; font-family: ui-monospace, monospace; font-si
   align-self: stretch; display: flex; flex-direction: column; gap: 12px; padding: 16px; background: var(--surface);
   border: 1px solid var(--border); border-radius: 0 var(--radius) var(--radius) var(--radius);
 }
-@media (prefers-color-scheme: light) { .tabcard-tab, .tabcard-body { border-color: transparent; } }
+:root:not([data-theme="dark"]) .tabcard-tab, :root:not([data-theme="dark"]) .tabcard-body { border-color: transparent; }
+
+/* ---------- Anleitungen ---------- */
+.guides { display: flex; flex-direction: column; gap: 8px; max-width: 860px; }
+.guide { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 0 16px; }
+.guide summary { display: flex; flex-direction: column; gap: 2px; padding: 14px 0; cursor: pointer; list-style: none; position: relative; padding-right: 28px; }
+.guide summary::-webkit-details-marker { display: none; }
+.guide summary::after {
+  content: ""; position: absolute; right: 4px; top: 50%; width: 7px; height: 7px; margin-top: -5px;
+  border-right: 2px solid var(--text); border-bottom: 2px solid var(--text); transform: rotate(45deg); transition: transform 0.2s var(--ease);
+}
+.guide[open] summary::after { transform: rotate(-135deg); margin-top: -1px; }
+.guide-title { font: 700 18px/22px var(--font-display); letter-spacing: -0.03em; }
+.guide-sub { font-size: 13px; color: var(--muted); }
+.guide ol, .guide ul { margin: 0 0 12px; padding-left: 22px; display: flex; flex-direction: column; gap: 6px; font-size: 14.5px; line-height: 1.45; }
+.guide h3 { margin: 4px 0 6px; font-size: 15px; }
+.guide code { background: var(--surface-2); padding: 1px 5px; border-radius: 4px; }
+.guide-links { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0 0 14px; padding-top: 10px; border-top: 1px solid var(--line-soft); font-size: 13px; }
+.guide-links a { display: inline-flex; align-items: center; gap: 4px; text-decoration: underline; text-underline-offset: 3px; }

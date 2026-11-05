@@ -1,4 +1,4 @@
-import { ChevronRight, Plane, Sparkles } from "lucide-react";
+import { ChevronRight, ListChecks, Plane } from "lucide-react";
 import type { ReactNode } from "react";
 import { INTERNAL_SCRIPT, useSetupState } from "../setup";
 import { useHass } from "../ha/HassContext";
@@ -44,11 +44,11 @@ export function Overview() {
 
       {setup.open > 0 && (
         <a className="setup-banner" href="#/einrichtung">
-          <Sparkles size={18} />
+          <ListChecks size={16} />
           <span>
             <strong>Einrichtung abschließen</strong> – noch {setup.open} {setup.open === 1 ? "Schritt" : "Schritte"}
           </span>
-          <ChevronRight size={18} />
+          <ChevronRight size={16} />
         </a>
       )}
 

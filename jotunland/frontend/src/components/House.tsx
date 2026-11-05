@@ -329,16 +329,9 @@ export function House() {
   const [editing, setEditing] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
   const [draft, setDraft] = useState<Layout | null>(null); // während des Ziehens
-  const [narrow, setNarrow] = useState(false);
   const fig = useRef<HTMLElement>(null);
   const art = useRef<HTMLDivElement>(null);
   const drag = useRef<{ id: string; isNew: boolean; x0: number; y0: number; moved: boolean; inside: boolean } | null>(null);
-
-  useEffect(() => {
-    const ro = new ResizeObserver(([e]) => setNarrow(e.contentRect.width < 520));
-    ro.observe(fig.current!);
-    return () => ro.disconnect();
-  }, []);
 
   const plugged = !!wbStatus && /charging|preparing|suspended|finishing|connected|lädt|angesteckt/i.test(wbStatus.state);
   const svg = houseSvg({
@@ -359,14 +352,35 @@ export function House() {
   const placed = pins.filter((p) => shown[p.id]);
   const free = pins.filter((p) => !shown[p.id]);
 
+  // Ein verschobenes Schild bleibt angeschlossen: Leitung vom Bauteil zum Schild, mit derselben Energie wie am Bauteil
+  const bat = n.battery ?? 0, grid = n.grid ?? 0;
+  const links = ([
+    ["pv", [172, 222, roofZ(222) + 2], "sun", n.pv ?? 0, false],
+    ["netz", [500, 20, 166], "grid", grid, grid < 0],
+    ["batterie", [392, 224, 40], "battery", bat, bat < 0],
+    ["warmwasser", [428, 228, 50], "heat", n.acthor ?? 0, true],
+    ["wallbox", [141, 276, 22], "car", n.wallbox ?? 0, true],
+  ] as [string, V3, string, number, boolean][]).flatMap(([id, part, tone, w, toPin]) => {
+    const s = shown[id], d = DEFAULT_AT[id];
+    if (!s || (s[0] === d[0] && s[1] === d[1])) return [];
+    return [{ id, svg: flow(`M${((s[0] * W) / 100).toFixed(1)},${((s[1] * H) / 100).toFixed(1)} L${pt(...part)}`, tone, w, toPin) }];
+  });
+
+  // Handy: das Bild ist breiter als der Bildschirm → mittig auf dem Haus beginnen, nicht am linken Rand
+  const scroller = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const s = scroller.current!;
+    s.scrollLeft = (s.scrollWidth - s.clientWidth) / 2;
+  }, []);
+
   // offenes Schild in der Abbildung halten – auch wenn es beim Bedienen wächst
   const stage = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const el = stage.current?.querySelector<HTMLElement>(".house-pin.open");
-    if (!el || narrow) return;
+    if (!el) return;
     el.style.setProperty("--dx", "0px");
     el.style.setProperty("--dy", "0px");
-    const r = el.getBoundingClientRect(), sr = stage.current!.getBoundingClientRect();
+    const r = el.getBoundingClientRect(), sr = scroller.current!.getBoundingClientRect(); // der sichtbare Ausschnitt, nicht das ganze Bild
     el.style.setProperty("--dx", `${Math.min(0, sr.right - r.right - 8) + Math.max(0, sr.left - r.left + 8)}px`);
     el.style.setProperty("--dy", `${Math.min(0, sr.bottom - r.bottom - 8)}px`);
   });
@@ -384,7 +398,7 @@ export function House() {
     return { inside: x >= 0 && x <= 100 && y >= 0 && y <= 100, at: [+clamp(x, 4, 96).toFixed(1), +clamp(y, 4, 96).toFixed(1)] as [number, number] };
   };
   const startDrag = (e: PointerEvent, id: string, isNew: boolean) => {
-    if (!editing || narrow || e.button > 0) return;
+    if (!editing || e.button > 0) return;
     drag.current = { id, isNew, x0: e.clientX, y0: e.clientY, moved: false, inside: !isNew };
     if (isNew) setDraft({ ...layout, [id]: pos(e).at });
     fig.current!.setPointerCapture(e.pointerId);
@@ -428,10 +442,14 @@ export function House() {
 
   return (
     <figure ref={fig} className={`house ${editing ? "editing" : ""}`} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}>
+      <div className="house-scroll" ref={scroller}>
       <div className="house-stage" ref={stage}>
         <div ref={art}>
           <svg className="house-art" viewBox={`0 0 ${W} ${H}`} aria-hidden="true" dangerouslySetInnerHTML={{ __html: svg }} />
         </div>
+        <svg className="house-art house-links" viewBox={`0 0 ${W} ${H}`} aria-hidden="true">
+          {links.map((l) => <g key={l.id} dangerouslySetInnerHTML={{ __html: l.svg }} />)}
+        </svg>
         <ul className="house-pins">
           {placed.map((p) => {
             const isOpen = open === p.id && !editing && !!p.ctl;
@@ -452,7 +470,7 @@ export function House() {
                 {isOpen && <div className="house-pin-ctl helpers">{p.ctl}</div>}
                 {editing && (
                   <button type="button" className="house-pin-x" aria-label={`${p.name} entfernen`} onPointerDown={(e) => e.stopPropagation()} onClick={() => remove(p.id)}>
-                    <X size={14} />
+                    <X size={16} />
                   </button>
                 )}
               </li>
@@ -465,16 +483,17 @@ export function House() {
             <small>{[toBattery >= 50 && `${fmtPower(toBattery)} in die Batterie`, toGrid >= 50 && `${fmtPower(toGrid)} ins Netz`].filter(Boolean).join(" · ")}</small>
           </p>
         )}
-        <div className="house-bar">
+      </div>
+      </div>
+      <div className="house-bar">
           {editing && <button type="button" className="btn small" onClick={reset}>Zurücksetzen</button>}
           <button type="button" className={`btn small ${editing ? "primary" : ""}`} onClick={() => { setEditing(!editing); setOpen(null); }}>
             {editing ? "Fertig" : "Bearbeiten"}
           </button>
-        </div>
       </div>
       {editing && (
         <div className="house-tray">
-          <p>{free.length ? (narrow ? "Antippen zum Hinzufügen" : "Auf das Haus ziehen oder antippen") : "Alle Werte sind auf dem Haus"}</p>
+          <p>{free.length ? "Auf das Haus ziehen oder antippen" : "Alle Werte sind auf dem Haus"}</p>
           {free.map((p) => (
             <button
               key={p.id}
@@ -482,9 +501,8 @@ export function House() {
               className="house-chip"
               title={p.entity}
               onPointerDown={(e) => startDrag(e, p.id, true)}
-              onClick={() => narrow && save({ ...layout, [p.id]: [50, 50] })}
             >
-              <Plus size={13} /> {p.name} <b>{p.value}</b>
+              <Plus size={16} /> {p.name} <b>{p.value}</b>
             </button>
           ))}
         </div>

@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.10.2
+- **Schilder bleiben angeschlossen:** wird ein Schild von PV, Netz, Batterie, Warmwasser oder
+  Wallbox verschoben, läuft eine Leitung vom Bauteil bis zum Schild – beim Ziehen sofort, mit
+  denselben Energiepunkten wie am Bauteil. „Zurücksetzen“ nimmt sie wieder weg
+
+## 0.10.1
+- **Haus auf dem Handy:** das Bild lässt sich seitlich wischen, die Schilder bleiben darauf,
+  und die Ansicht beginnt mittig auf dem Haus. Aufgeklappte Schilder bleiben im sichtbaren
+  Ausschnitt, der Überschuss passt immer auf den Bildschirm
+- **Ruhiger:** Einrichtungs- und Demo-Hinweis sind schlichte Flächen, nur noch das Haus und
+  der Überschuss leuchten. Die Sonne steht still, die Punkte zeigen den Energiefluss. Die
+  Leiste unten ist einfarbig statt Glas – flüssiger auf älteren Handys
+- **Lesbarer:** Entscheidungen der Regelungen werden nicht mehr abgeschnitten, auch nicht
+  ohne Maus. Solltemperaturen immer als „23,0 °C“. Ganze Schriftgrößen, Leiste unten ab 11 px,
+  keine enge Laufweite mehr bei kleiner Schrift
+- **Daumen:** Bedienelemente auf dem Handy mindestens 44 pt hoch
+- **Eine Bezeichnung:** die Startseite heißt überall „Haus“ (vorher auch „Übersicht“ und „Start“)
+
 ## 0.10.0
 - **Tag als Standard:** die helle Ansicht gilt jetzt immer; Nacht oder „wie das Gerät“
   unter Einrichtung → Darstellung

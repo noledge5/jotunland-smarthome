@@ -533,6 +533,7 @@ textarea.input { resize: vertical; font-family: ui-monospace, monospace; font-si
 .house { position: relative; margin: 0; container-type: inline-size; }
 .house-stage { position: relative; }
 .house-art { display: block; width: 100%; height: auto; }
+.house-links { position: absolute; top: 0; left: 0; pointer-events: none; }
 .house-art .part { fill: var(--surface); stroke: var(--border-strong); stroke-width: 2; stroke-linejoin: round; transition: fill 0.2s var(--ease); }
 .house-art .shade { fill: var(--art-shade); }
 .house-art .earth, .house-art .glass { fill: var(--bg); }

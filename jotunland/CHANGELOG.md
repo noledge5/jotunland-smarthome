@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.10.2
+- **Schilder bleiben angeschlossen:** wird ein Schild von PV, Netz, Batterie, Warmwasser oder
+  Wallbox verschoben, läuft eine Leitung vom Bauteil bis zum Schild – beim Ziehen sofort, mit
+  denselben Energiepunkten wie am Bauteil. „Zurücksetzen“ nimmt sie wieder weg
+
 ## 0.10.1
 - **Haus auf dem Handy:** das Bild lässt sich seitlich wischen, die Schilder bleiben darauf,
   und die Ansicht beginnt mittig auf dem Haus. Aufgeklappte Schilder bleiben im sichtbaren

@@ -352,6 +352,20 @@ export function House() {
   const placed = pins.filter((p) => shown[p.id]);
   const free = pins.filter((p) => !shown[p.id]);
 
+  // Ein verschobenes Schild bleibt angeschlossen: Leitung vom Bauteil zum Schild, mit derselben Energie wie am Bauteil
+  const bat = n.battery ?? 0, grid = n.grid ?? 0;
+  const links = ([
+    ["pv", [172, 222, roofZ(222) + 2], "sun", n.pv ?? 0, false],
+    ["netz", [500, 20, 166], "grid", grid, grid < 0],
+    ["batterie", [392, 224, 40], "battery", bat, bat < 0],
+    ["warmwasser", [428, 228, 50], "heat", n.acthor ?? 0, true],
+    ["wallbox", [141, 276, 22], "car", n.wallbox ?? 0, true],
+  ] as [string, V3, string, number, boolean][]).flatMap(([id, part, tone, w, toPin]) => {
+    const s = shown[id], d = DEFAULT_AT[id];
+    if (!s || (s[0] === d[0] && s[1] === d[1])) return [];
+    return [{ id, svg: flow(`M${((s[0] * W) / 100).toFixed(1)},${((s[1] * H) / 100).toFixed(1)} L${pt(...part)}`, tone, w, toPin) }];
+  });
+
   // Handy: das Bild ist breiter als der Bildschirm → mittig auf dem Haus beginnen, nicht am linken Rand
   const scroller = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
@@ -433,6 +447,9 @@ export function House() {
         <div ref={art}>
           <svg className="house-art" viewBox={`0 0 ${W} ${H}`} aria-hidden="true" dangerouslySetInnerHTML={{ __html: svg }} />
         </div>
+        <svg className="house-art house-links" viewBox={`0 0 ${W} ${H}`} aria-hidden="true">
+          {links.map((l) => <g key={l.id} dangerouslySetInnerHTML={{ __html: l.svg }} />)}
+        </svg>
         <ul className="house-pins">
           {placed.map((p) => {
             const isOpen = open === p.id && !editing && !!p.ctl;

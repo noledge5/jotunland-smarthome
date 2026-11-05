@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { Mountain } from "lucide-react";
 import { useHass } from "../ha/HassContext";
 import { Chips } from "../components/ui";
 
@@ -13,7 +12,7 @@ export function Connect() {
   return (
     <div className="connect">
       <div className="connect-card">
-        <div className="brand big"><Mountain size={28} /> Jotunland</div>
+        <div className="brand big">Jotunland</div>
         <p className="muted">Mit Home Assistant verbinden</p>
         {status === "error" && <p className="hint bad">{error}</p>}
         <label className="field">

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { HassEntities } from "home-assistant-js-websocket";
-import { Lock, Sparkles } from "lucide-react";
+import { Lock, Workflow } from "lucide-react";
 import { useHass } from "../ha/HassContext";
 import { relTime } from "../format";
 
@@ -59,7 +59,7 @@ export function useConfirm<V>() {
 
 /** Kleiner Hinweis neben dem Bedienelement: „wird gesendet …“ / „keine Rückmeldung“ / Sperre */
 export function Fb({ fb, blocked }: { fb: { sending: boolean; timedOut: boolean }; blocked?: string }) {
-  if (blocked) return <span className="fb blocked"><Lock size={11} /> gesperrt: {blocked}</span>;
+  if (blocked) return <span className="fb blocked"><Lock size={16} /> gesperrt: {blocked}</span>;
   if (fb.sending) return <span className="fb sending" role="status">wird gesendet …</span>;
   if (fb.timedOut) return <span className="fb bad" role="status">keine Rückmeldung</span>;
   return null;
@@ -72,7 +72,7 @@ export function StatusLine({ name }: { name: string }) {
   if (!d) return null;
   return (
     <a className="status-line" href="#/verlauf" title="Alle Entscheidungen im Verlauf">
-      <Sparkles size={13} />
+      <Workflow size={16} />
       <span>{d.message}</span>
       <time>{relTime(new Date(d.when).toISOString())}</time>
     </a>

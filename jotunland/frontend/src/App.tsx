@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Flame, History, LayoutGrid, Lightbulb, Mountain, Settings, Workflow, Zap } from "lucide-react";
+import { Flame, History, House, Lightbulb, Settings, Workflow, Zap } from "lucide-react";
 import { HassProvider, useHass } from "./ha/HassContext";
 import { Overview } from "./views/Overview";
 import { Heating } from "./views/Heating";
@@ -11,7 +11,7 @@ import { History as HistoryView } from "./views/History";
 import { Connect } from "./views/Connect";
 
 const ROUTES = [
-  { path: "", label: "Übersicht", short: "Start", icon: LayoutGrid, view: Overview },
+  { path: "", label: "Haus", icon: House, view: Overview },
   { path: "heizung", label: "Heizung", icon: Flame, view: Heating },
   { path: "energie", label: "Energie", icon: Zap, view: Energy },
   { path: "geraete", label: "Geräte", icon: Lightbulb, view: Devices },
@@ -44,7 +44,7 @@ function Shell() {
   return (
     <div className="shell">
       <nav className="nav" aria-label="Hauptnavigation">
-        <div className="brand"><Mountain size={22} /> <span>{config.title}</span></div>
+        <div className="brand"><span>{config.title}</span></div>
         {ROUTES.map((r) => (
           <a key={r.path} href={`#/${r.path}`} className={r === current ? "active" : ""} aria-current={r === current ? "page" : undefined}>
             <r.icon size={20} />

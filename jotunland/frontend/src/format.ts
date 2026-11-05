@@ -76,8 +76,8 @@ export { norm } from "./discovery";
 export function fmtTarget(a: Record<string, unknown>): string {
   const n = (v: unknown) => (v === null || v === undefined || v === "" || isNaN(Number(v)) ? undefined : Number(v));
   const t = n(a.temperature);
-  if (t !== undefined) return `${fmtNum(t, 1)}°`;
+  if (t !== undefined) return fmtTemp(t);
   const lo = n(a.target_temp_low);
   const hi = n(a.target_temp_high);
-  return lo !== undefined && hi !== undefined ? `${fmtNum(lo, 0)}–${fmtNum(hi, 0)}°` : "–";
+  return lo !== undefined && hi !== undefined ? `${fmtNum(lo, 0)}–${fmtNum(hi, 0)} °C` : "–";
 }

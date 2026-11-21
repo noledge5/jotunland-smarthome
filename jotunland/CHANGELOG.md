@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.11.1
+- **Falsche Wallbox erkannt:** der Schalter „AdGuard Home Abfrageprotokoll“ wurde als
+  Wallbox-Schalter zugeordnet („epro“ steckt in „Abfrag**epro**tokoll“). Hersteller-Erkennung für
+  Wallbox, Fröling und my-PV jetzt mit Wortgrenzen – nach dem Update im Assistenten „Aktualisieren“
+
 ## 0.11.0
 Prüfung und Fehlerbehebung (Paket-Version 8)
 - **AC THOR – Batterie-Vorrang wirkt:** unter dem Vorrang bekommt der Heizstab nur echte

@@ -96,11 +96,12 @@ const ENERGY = ["kWh", "Wh", "MWh"];
 const TEMP = ["°C"];
 
 const ENPHASE = /enphase|envoy|iq gateway/;
-const WALLBOX = /go ?e|goe|freecharge|free charge|wallbox|charger|ladestation|lader|ocpp|epro|free2move|esolutions|f2me/;
+// Wortgrenzen: sonst passt z. B. "epro" in "Abfrag-epro-tokoll" (AdGuard) und wird zur Wallbox
+const WALLBOX = /\b(?:go ?e|goe|free ?charge|charger|ladestation|lader|ocpp|epro\w*|free2move|esolutions|f2me\w*)\b|wallbox/;
 const BATTERY = /batter|akku|speicher|encharge|storage|powerwall/;
 const BATTERY_VENDOR = /enphase|envoy|encharge|victron|sonnen|byd|huawei|luna2000|sungrow|fronius|kostal|tesla|powerwall|senec|e3dc|solaredge|growatt|goodwe|varta|alpha ?ess|1komma5|kiwigrid/;
-export const MYPV = /my ?pv|ac ?thor|acthor|elwa/;
-const FROELING = /froeling|froling|lambdatronic|pellet|p4|pe1|s3 turbo/;
+export const MYPV = /my ?pv|ac ?thor|acthor|\belwa\b/;
+const FROELING = /froeling|froling|lambdatronic|pellet|\b(?:p4|pe1|s3 turbo)\b/;
 
 export const SLOTS: Record<string, SlotRule> = {
   "energy.pv_power": { group: "Solar (Enphase)", label: "PV-Leistung aktuell", domains: ["sensor"], units: POWER, vendor: ENPHASE, need: [/produc|produkt|erzeug|solar|pv/], exclude: /consum|verbrauch|inverter|wechselrichter|\bnet\b|netto|today|heute|lifetime|gesamt|7 ?day|ueberschuss|surplus|verfuegbar|batter|encharge/ },

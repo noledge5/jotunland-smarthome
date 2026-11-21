@@ -9,6 +9,7 @@ import { Automations } from "./views/Automations";
 import { Setup } from "./views/Setup";
 import { History as HistoryView } from "./views/History";
 import { Connect } from "./views/Connect";
+import { servedViaIngress } from "./ha/connection";
 
 const ROUTES = [
   { path: "", label: "Haus", icon: House, view: Overview },
@@ -35,9 +36,27 @@ function useRoute() {
 }
 
 function Shell() {
-  const { status, isDemo, config, toasts } = useHass();
+  const { status, error, isDemo, config, toasts, addon, settings } = useHass();
   const route = useRoute();
-  if (status === "setup" || status === "error") return <Connect />;
+  // Als Add-on (Ingress) verbindet der Server – Adresse/Token einzugeben ergibt dort keinen Sinn
+  const viaAddon = !!addon || servedViaIngress();
+  const [editConn, setEditConn] = useState(false);
+  useEffect(() => setEditConn(false), [settings]);
+  if (!viaAddon && (status === "setup" || status === "error" || editConn)) return <Connect />;
+  if (viaAddon && status === "error") {
+    return (
+      <div className="connect">
+        <div className="connect-card">
+          <div className="brand big">{config.title}</div>
+          <p className="hint bad">{error ?? "Verbindung zu Home Assistant verloren"}</p>
+          <button type="button" className="btn primary" onClick={() => window.location.reload()}>
+            Neu anmelden
+          </button>
+        </div>
+      </div>
+    );
+  }
+  const waiting = status === "connecting" || status === "setup";
   const current = ROUTES.find((r) => r.path === route) ?? ROUTES[0];
   const View = current.view;
 
@@ -64,7 +83,19 @@ function Shell() {
       </div>
       <main className="main">
         {isDemo && <div className="demo-banner">Demo-Modus: simulierte Daten. Unter Einrichtung → Verbindung beenden.</div>}
-        {status === "connecting" ? <div className="loading">Verbinde mit Home Assistant …</div> : <View />}
+        {waiting ? (
+          <div className="loading">
+            Verbinde mit Home Assistant …
+            {error && <p className="hint bad">{error} – neuer Versuch läuft</p>}
+            {error && !viaAddon && (
+              <button type="button" className="btn ghost" onClick={() => setEditConn(true)}>
+                Verbindung ändern
+              </button>
+            )}
+          </div>
+        ) : (
+          <View />
+        )}
       </main>
     </div>
   );

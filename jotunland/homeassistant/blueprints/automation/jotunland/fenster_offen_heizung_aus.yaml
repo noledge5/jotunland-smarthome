@@ -56,13 +56,22 @@ actions:
           - condition: trigger
             id: offen
         sequence:
-          - action: scene.create
-            data:
-              scene_id: "{{ szene }}"
-              snapshot_entities: "{{ thermostat }}"
+          # nur Thermostate, die noch heizen – schon ausgeschaltete (Sommer, von Hand) bleiben aus
+          - variables:
+              heizend: "{{ expand(thermostat) | rejectattr('state', 'eq', 'off') | map(attribute='entity_id') | list }}"
+          - condition: template
+            value_template: "{{ heizend | count > 0 }}"
+          # Schnappschuss nur, wenn noch keiner da ist – sonst würde ein zweites Fenster
+          # (oder ein Neustart der Automation) den Zustand "aus" als Vorher merken
+          - if: "{{ expand('scene.' ~ szene) | count == 0 }}"
+            then:
+              - action: scene.create
+                data:
+                  scene_id: "{{ szene }}"
+                  snapshot_entities: "{{ heizend }}"
           - action: climate.set_hvac_mode
             target:
-              entity_id: !input thermostat
+              entity_id: "{{ heizend }}"
             data:
               hvac_mode: "off"
       - conditions:
@@ -76,5 +85,10 @@ actions:
             value_template: "{{ expand('scene.' ~ szene) | count > 0 }}"
         sequence:
           - action: scene.turn_on
+            target:
+              entity_id: "scene.{{ szene }}"
+          # verbrauchten Schnappschuss löschen, damit beim nächsten Öffnen ein frischer entsteht
+          - action: scene.delete
+            continue_on_error: true
             target:
               entity_id: "scene.{{ szene }}"

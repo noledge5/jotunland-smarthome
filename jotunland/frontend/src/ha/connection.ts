@@ -41,6 +41,11 @@ export function servedFromHomeAssistant(): boolean {
   return /\/(local|hacsfiles)\//.test(window.location.pathname);
 }
 
+/** Wird die Oberfläche über Ingress (Add-on-Seitenleiste) ausgeliefert? Dann gibt es nie den Verbinden-Dialog. */
+export function servedViaIngress(): boolean {
+  return /\/api\/hassio_ingress\//.test(window.location.pathname);
+}
+
 export function loadSettings(): ConnSettings {
   const raw = storageGet(localStorage, SETTINGS_KEY);
   if (raw) {
@@ -61,6 +66,11 @@ export function loadSettings(): ConnSettings {
 
 export function saveSettings(s: ConnSettings | null) {
   storageSet(SETTINGS_KEY, s ? JSON.stringify(s) : null);
+}
+
+/** Gespeicherte Anmeldung verwerfen (abgelaufen/ungültig) – der nächste Versuch meldet neu an. */
+export function clearTokens() {
+  storageSet(TOKENS_KEY, null);
 }
 
 export function logout() {
@@ -116,7 +126,7 @@ export async function connect(s: ConnSettings): Promise<Connection> {
 
 export interface AddonStatus {
   addon: true;
-  package: { installed: boolean; version: number | null; path: string | null };
+  package: { installed: boolean; version: number | null; hash?: string | null; path: string | null };
   blueprint: boolean;
   setup: { automatic: boolean; note: string };
   pending_defaults: boolean;

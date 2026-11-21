@@ -32,8 +32,9 @@ export function useEnergy(): EnergyNumbers {
   const batterySoc = num(entity("energy.battery_soc"));
   let grid = w("energy.grid");
   let consumption = w("energy.consumption");
+  // Envoy-"Verbrauch" = PV + Netz (ohne Batterie) → Netz = Verbrauch − PV
+  if (grid === undefined && pv !== undefined && consumption !== undefined) grid = consumption - pv;
   if (pv !== undefined && grid !== undefined) consumption = pv + grid + (battery ?? 0);
-  else if (grid === undefined && pv !== undefined && consumption !== undefined) grid = consumption - pv - (battery ?? 0);
   const wallbox = w("wallbox.power");
   const acthor = w("acthor.power");
   const house = consumption === undefined ? undefined : Math.max(0, consumption - (wallbox ?? 0) - (acthor ?? 0));

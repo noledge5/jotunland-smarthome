@@ -1,4 +1,4 @@
-# jotunland-package-version: 7
+# jotunland-package-version: 8
 # =============================================================================
 #  Jotunland – Home-Assistant-Paket
 #  Helfer, Automationen und Skripte für PV-Überschussladen, Heizzeiten,
@@ -28,6 +28,10 @@
 #  sensor.anpassen_warmwasser_temperatur    | AC THOR: Speichertemperatur
 #  binary_sensor.anpassen_kessel_stoerung   | Fröling: Störung
 #  sensor.anpassen_pelletvorrat             | Fröling: Pelletvorrat (%)
+#
+#  Automationen zwischen "# jotunland-requires: <Zuordnung> …" und "# jotunland-end"
+#  brauchen die genannten Geräte. Fehlt eine Zuordnung, lässt die Oberfläche den Block
+#  weg – sonst meldet HA bei jedem Start "unknown entity".
 # =============================================================================
 
 # ----------------------------------------------------------------- Helfer ----
@@ -131,14 +135,15 @@ template:
              or (has_value('sensor.anpassen_pv_leistung') and has_value('sensor.anpassen_hausverbrauch')) }}
         state: >
           {% macro w(id) -%}
-            {%- set v = states(id) | float(0) -%}
+            {%- set v = states(id) | float(0) if has_value(id) else 0 -%}
             {{- v * 1000 if state_attr(id, 'unit_of_measurement') == 'kW' else v -}}
           {%- endmacro %}
           {% set bat = w('sensor.anpassen_batterie_leistung') | float if has_value('sensor.anpassen_batterie_leistung') else 0 %}
           {% if has_value('sensor.anpassen_netz') %}
             {% set netz = w('sensor.anpassen_netz') | float %}
           {% else %}
-            {% set netz = w('sensor.anpassen_hausverbrauch') | float - w('sensor.anpassen_pv_leistung') | float - bat %}
+            {# Verbrauch = PV + Netz (sieht die Batterie nicht) → Netz = Verbrauch − PV #}
+            {% set netz = w('sensor.anpassen_hausverbrauch') | float - w('sensor.anpassen_pv_leistung') | float %}
           {% endif %}
           {% set soc = states('sensor.anpassen_batterie_ladestand') | float(100) %}
           {% set eigen = w('sensor.anpassen_wallbox_leistung') | float + w('sensor.anpassen_warmwasser_leistung') | float %}
@@ -178,6 +183,9 @@ script:
     sequence:
       - variables:
           geraet: switch.anpassen_wallbox_laden
+      # Wallbox nicht zugeordnet oder nicht erreichbar → nichts tun
+      - condition: template
+        value_template: "{{ has_value(geraet) }}"
       - if: "{{ geraet.startswith('select.') }}"
         then:
           # go-e (APIv2) hat statt eines Schalters ein Auswahlfeld "Ladefreigabe/frc".
@@ -200,6 +208,8 @@ script:
     sequence:
       - variables:
           geraet: switch.anpassen_wallbox_laden
+      - condition: template
+        value_template: "{{ has_value(geraet) }}"
       - if: "{{ geraet.startswith('select.') }}"
         then:
           - action: select.select_option
@@ -227,9 +237,10 @@ script:
     sequence:
       - variables:
           geraet: number.anpassen_wallbox_ladestrom
-      # Nur senden, wenn sich etwas ändert – schont die Wallbox
+      # Nur senden, wenn die Wallbox da ist und sich etwas ändert – schont die Wallbox
+      # und schreibt keine Entscheidung ins Logbuch, die nie ankommt
       - condition: template
-        value_template: "{{ states(geraet) | int(0) != ampere | int }}"
+        value_template: "{{ has_value(geraet) and states(geraet) | int(0) != ampere | int }}"
       - action: "{{ geraet.split('.')[0] }}.set_value"
         target:
           entity_id: "{{ geraet }}"
@@ -351,6 +362,7 @@ script:
 
 automation:
   # ---------------------------------------------------------------- Wallbox
+  # jotunland-requires: wallbox.charging_switch wallbox.current
   - id: jotunland_wallbox_pv_ueberschuss
     alias: "Wallbox: PV-Überschussladen"
     description: >
@@ -388,7 +400,9 @@ automation:
                   grund: "Min + PV: Überschuss nur für {{ wunsch }} A, lädt mit Mindeststrom"
               - action: script.jotunland_wallbox_start
         # zu wenig Überschuss im reinen PV-Modus → Pause regelt die nächste Automation
+  # jotunland-end
 
+  # jotunland-requires: wallbox.charging_switch
   - id: jotunland_wallbox_pv_pause
     alias: "Wallbox: Pause bei zu wenig Sonne"
     description: Pausiert, wenn der Überschuss 5 Minuten lang nicht für den Mindeststrom reicht.
@@ -398,10 +412,20 @@ automation:
           {{ states('sensor.jotunland_wallbox_wunschstrom') | int(0)
              < states('input_number.jotunland_wallbox_min_ampere') | int(6) }}
         for: "00:05:00"
+      # Reicht der Überschuss schon beim Umschalten nicht, feuert der Template-Trigger nie
+      # (er reagiert nur auf den Wechsel) → 5 min nach dem Umschalten selbst prüfen
+      - trigger: state
+        entity_id: input_select.jotunland_wallbox_modus
+        to: PV-Überschuss
+        for: "00:05:00"
     conditions:
       - condition: state
         entity_id: input_select.jotunland_wallbox_modus
         state: PV-Überschuss
+      - condition: template
+        value_template: >
+          {{ states('sensor.jotunland_wallbox_wunschstrom') | int(0)
+             < states('input_number.jotunland_wallbox_min_ampere') | int(6) }}
     actions:
       - action: script.jotunland_wallbox_stop
       - action: logbook.log
@@ -411,7 +435,9 @@ automation:
           message: >
             Pause: Überschuss reicht seit 5 min nicht für den Mindeststrom
             ({{ states('input_number.jotunland_wallbox_min_ampere') | int(6) }} A)
+  # jotunland-end
 
+  # jotunland-requires: wallbox.charging_switch wallbox.current
   - id: jotunland_wallbox_modus
     alias: "Wallbox: Modus Sofort / Aus"
     triggers:
@@ -433,13 +459,18 @@ automation:
               name: Jotunland Wallbox
               entity_id: input_select.jotunland_wallbox_modus
               message: "Modus Aus → Laden pausiert"
+  # jotunland-end
 
+  # jotunland-requires: wallbox.power
   - id: jotunland_wallbox_fertig
     alias: "Wallbox: Ladevorgang beendet"
     triggers:
-      - trigger: numeric_state
-        entity_id: sensor.anpassen_wallbox_leistung
-        below: 100
+      # unter 100 W – kW-Sensoren umgerechnet wie beim PV-Überschuss
+      - trigger: template
+        value_template: >
+          {% set id = 'sensor.anpassen_wallbox_leistung' %}
+          {% set v = states(id) | float(0) %}
+          {{ has_value(id) and (v * 1000 if state_attr(id, 'unit_of_measurement') == 'kW' else v) < 100 }}
         for: "00:03:00"
     conditions:
       - condition: state
@@ -449,18 +480,23 @@ automation:
       - action: script.jotunland_melden
         data:
           titel: Auto geladen
-          nachricht: "Geladen: {{ states('sensor.anpassen_wallbox_geladen') }} kWh"
+          nachricht: >
+            {{ 'Geladen: ' ~ states('sensor.anpassen_wallbox_geladen') ~ ' kWh'
+               if has_value('sensor.anpassen_wallbox_geladen') else 'Ladevorgang beendet' }}
       - action: logbook.log
         data:
           name: Jotunland Wallbox
           entity_id: input_select.jotunland_wallbox_modus
-          message: "Fertig ({{ states('sensor.anpassen_wallbox_geladen') }} kWh) → zurück auf PV-Überschuss"
+          message: >
+            Fertig{{ ' (' ~ states('sensor.anpassen_wallbox_geladen') ~ ' kWh)'
+                     if has_value('sensor.anpassen_wallbox_geladen') }} → zurück auf PV-Überschuss
       # Nach "Sofort" zurück auf PV-Überschuss, damit der nächste Ladevorgang wieder sparsam ist
       - action: input_select.select_option
         target:
           entity_id: input_select.jotunland_wallbox_modus
         data:
           option: PV-Überschuss
+  # jotunland-end
 
   # ---------------------------------------------------------------- Heizung
   - id: jotunland_heizzeiten
@@ -582,6 +618,7 @@ automation:
               entity_id: "{{ states.automation | selectattr('attributes.id', 'eq', 'jotunland_heizzeiten') | map(attribute='entity_id') | list }}"
 
   # ----------------------------------------------- Warmwasser / Pelletkessel
+  # jotunland-requires: acthor.temperature
   - id: jotunland_warmwasser_nachheizen
     alias: "Warmwasser: Pellet-Nachheizung"
     description: >
@@ -599,7 +636,9 @@ automation:
         below: 1500
     actions:
       - action: script.jotunland_pellet_anfordern
+  # jotunland-end
 
+  # jotunland-requires: pellet.error
   - id: jotunland_pellet_stoerung
     alias: "Pelletkessel: Störung melden"
     triggers:
@@ -612,7 +651,9 @@ automation:
         data:
           titel: "⚠️ Pelletkessel"
           nachricht: "Der Fröling-Kessel meldet seit {{ now().strftime('%H:%M') }} Uhr eine Störung."
+  # jotunland-end
 
+  # jotunland-requires: pellet.pellet_stock
   - id: jotunland_pelletvorrat_niedrig
     alias: "Pelletkessel: Vorrat niedrig"
     triggers:
@@ -624,3 +665,4 @@ automation:
         data:
           titel: Pellets bestellen
           nachricht: "Pelletvorrat bei {{ states('sensor.anpassen_pelletvorrat') }} %."
+  # jotunland-end

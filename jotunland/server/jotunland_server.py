@@ -16,6 +16,7 @@ import json
 import logging
 import os
 import re
+import stat
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -48,8 +49,9 @@ DEV = os.environ.get("JOTUNLAND_DEV") == "1"
 INGRESS_IP = "172.30.32.2"
 VERSION_RE = re.compile(r"#\s*jotunland-package-version:\s*(\d+)")
 
-# Startwerte nach der ersten Installation. Gesetzt wird nur, was noch auf dem
-# Minimalwert steht – eigene Einstellungen bleiben unangetastet.
+# Startwerte nach der ersten Installation. Gesetzt wird nur für Helfer, die es
+# vor der Installation noch nicht gab, und nur, was noch auf dem Minimalwert
+# steht – eigene Einstellungen bleiben auch bei jeder Neuinstallation unangetastet.
 DEFAULTS: dict[str, float | str] = {
     "input_number.jotunland_wallbox_max_ampere": 16,
     "input_number.jotunland_wallbox_phasen": 3,
@@ -73,6 +75,26 @@ for _tag in ("!secret", "!include", "!include_dir_named", "!include_dir_merge_na
 def haus_files() -> list[Path]:
     # "_…" sind Vorlagen, jotunland.yaml gehört dem Paket selbst
     return sorted(p for p in HAUS_SRC.glob("*.yaml") if not p.name.startswith("_") and p.name != "jotunland.yaml")
+
+
+def write_atomic(path: Path, text: str) -> None:
+    """Schreibt erst eine Temp-Datei im selben Ordner und ersetzt dann – nie halb geschriebene Dateien."""
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        tmp.write_text(text)
+        if path.is_file():
+            os.chmod(tmp, stat.S_IMODE(path.stat().st_mode))
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def inside_config(path: Path) -> bool:
+    try:
+        path.resolve().relative_to(CONFIG_DIR.resolve())
+        return True
+    except ValueError:
+        return False
 
 
 def haus_target(package_path: Path, src: Path) -> Path:
@@ -208,14 +230,26 @@ async def restart_later(delay: float = 1.5) -> None:
         pass
 
 
-async def apply_defaults() -> list[str] | None:
-    """Setzt Startwerte. None = Helfer existieren (noch) nicht."""
+async def existing_entities() -> set[str]:
+    status, data = await core("GET", "states")
+    if status != 200 or not isinstance(data, list):
+        raise ConfigInvalid(f"Zustände nicht lesbar (HTTP {status})")
+    return {e.get("entity_id") for e in data if isinstance(e, dict)}
+
+
+async def apply_defaults(only: set[str] | None = None) -> list[str] | None:
+    """Setzt Startwerte. None = Helfer existieren (noch) nicht.
+
+    only: nur diese Helfer (die vor der Installation noch nicht existierten).
+    """
     first = next(iter(DEFAULTS))
     status, _ = await core("GET", f"states/{first}")
     if status != 200:
         return None
     applied = []
     for entity_id, value in DEFAULTS.items():
+        if only is not None and entity_id not in only:
+            continue
         status, st = await core("GET", f"states/{entity_id}")
         if status != 200 or not isinstance(st, dict):
             continue
@@ -249,12 +283,14 @@ async def load_errors(since: float) -> list[str]:
             await ws.send_json({"id": 1, "type": "system_log/list"})
             while (res := await ws.receive_json()).get("id") != 1:
                 pass
+    # Jotunland-Paket und alle Hausregeln (packages/ac_thor.yaml …)
+    needles = {"jotunland", "packages/", *(p.name for p in haus_files())}
     return [
         m
         for e in res.get("result") or []
         if e.get("timestamp", 0) >= since and e.get("level") in ("ERROR", "CRITICAL")
         for m in e.get("message", [])
-        if "jotunland" in m and re.search(r"Invalid config|Error loading|Setup failed", m)
+        if any(n in m for n in needles) and re.search(r"Invalid config|Error loading|Setup failed", m)
     ]
 
 
@@ -265,13 +301,14 @@ async def defaults_loop(_app: web.Application) -> None:
         if not state.get("pending_defaults"):
             continue
         try:
-            applied = await apply_defaults()
+            applied = await apply_defaults(set(state.get("defaults_for") or []))
         except Exception as err:  # noqa: BLE001 – HA startet evtl. noch
             LOG.debug("Startwerte noch nicht möglich: %s", err)
             continue
         if applied is not None:
             LOG.info("Startwerte gesetzt: %s", ", ".join(applied) or "nichts nötig")
             state["pending_defaults"] = False
+            state.pop("defaults_for", None)
             try:
                 state["load_errors"] = await load_errors(state.get("installed_at", 0))
             except Exception as err:  # noqa: BLE001
@@ -296,6 +333,22 @@ HA_LINE = re.compile(r"^homeassistant:\s*(#.*)?$")
 
 def _is_content(line: str) -> bool:
     return bool(line.strip()) and not line.lstrip().startswith("#")
+
+
+def package_dir(value: str) -> Path:
+    """Paketordner aus configuration.yaml – "/config/…" ist aus Sicht von HA der Konfigurationsordner."""
+    if value == "/config" or value.startswith("/config/"):
+        path = CONFIG_DIR / value[len("/config"):].lstrip("/")
+    elif value.startswith("/"):
+        path = Path(value)
+    else:
+        path = CONFIG_DIR / value
+    if not inside_config(path):
+        raise ManualSetup(
+            f"Der Paketordner „{value}“ liegt außerhalb des Konfigurationsordners. "
+            "Bitte das Jotunland-Paket von Hand einbinden."
+        )
+    return path
 
 
 def plan_packages(text: str) -> Plan:
@@ -327,15 +380,22 @@ def plan_packages(text: str) -> Plan:
         value = m.group(1)
         inc = re.match(r"^!include_dir_(merge_)?named\s+['\"]?([^'\"\s]+)['\"]?$", value)
         if inc:
-            return Plan(None, CONFIG_DIR / inc.group(2) / "jotunland.yaml", bool(inc.group(1)), "Pakete bereits aktiv")
+            return Plan(None, package_dir(inc.group(2)) / "jotunland.yaml", bool(inc.group(1)), "Pakete bereits aktiv")
         if value == "":
             nxt = next((n for n in range(k + 1, len(lines)) if _is_content(lines[n])), None)
             grand = re.match(r"^(\s*)", lines[nxt]).group(1) if nxt is not None else ""
             if len(grand) <= len(child):
                 grand = child + "  "
-            if any(re.match(rf"^{re.escape(grand)}jotunland:", line) for line in lines):
+            # Jotunland-Paket und jede Hausregel brauchen hier eine eigene Zeile
+            wanted = [("jotunland", "jotunland.yaml")] + [(src.stem, src.name) for src in haus_files()]
+            add = [
+                f"{grand}{key}: !include packages/{name}"
+                for key, name in wanted
+                if not any(re.match(rf"^{re.escape(grand)}{re.escape(key)}:", line) for line in lines)
+            ]
+            if not add:
                 return Plan(None, default_pkg, False, "Paket bereits eingetragen")
-            new_lines = lines[: k + 1] + [f"{grand}jotunland: !include packages/jotunland.yaml"] + lines[k + 1 :]
+            new_lines = lines[: k + 1] + add + lines[k + 1 :]
             return Plan("\n".join(new_lines) + "\n", default_pkg, False, "Paket in configuration.yaml eingetragen")
         raise ManualSetup(
             f"„packages: {value}“ in configuration.yaml kann nicht automatisch erweitert werden. "
@@ -351,10 +411,24 @@ def installed_package() -> tuple[Path | None, int | None]:
     candidates = [Path(state["package_path"])] if state.get("package_path") else []
     candidates.append(CONFIG_DIR / "packages" / "jotunland.yaml")
     for path in candidates:
-        if path.is_file():
+        if inside_config(path) and path.is_file():
             m = VERSION_RE.search(path.read_text(errors="ignore")[:2000])
             return path, int(m.group(1)) if m else 0
     return None, None
+
+
+HASH_RE = re.compile(r"#\s*jotunland-package-hash:\s*(\w+)")
+
+
+def package_hash(path: Path | None) -> str | None:
+    """Fingerabdruck der installierten Zuordnung (schreibt die Oberfläche in den Paketkopf)."""
+    if not path:
+        return None
+    try:
+        m = HASH_RE.search(path.read_text(errors="ignore")[:2000])
+    except OSError:
+        return None
+    return m.group(1) if m else None
 
 
 # ------------------------------------------------------------------ Routen ----
@@ -403,7 +477,8 @@ async def status(_request: web.Request) -> web.Response:
             "package": {
                 "installed": path is not None,
                 "version": version,
-                "path": str(path.relative_to(CONFIG_DIR)) if path else None,
+                "hash": package_hash(path),
+                "path": (path.relative_to(CONFIG_DIR).as_posix() if inside_config(path) else str(path)) if path else None,
             },
             "blueprint": BLUEPRINT_DST.is_file(),
             "setup": setup,
@@ -423,11 +498,18 @@ def _restore(snapshot: dict[Path, str | None]) -> None:
         if content is None:
             path.unlink(missing_ok=True)
         else:
-            path.write_text(content)
+            write_atomic(path, content)
 
 
 def _backup(snapshot: dict[Path, str | None]) -> Path:
-    target = CONFIG_DIR / "jotunland_backup" / time.strftime("%Y%m%d-%H%M%S")
+    base = CONFIG_DIR / "jotunland_backup" / time.strftime("%Y%m%d-%H%M%S")
+    target, n = base, 1
+    while True:  # mehrere Sicherungen in derselben Sekunde bekommen eigene Ordner
+        try:
+            target.mkdir(parents=True)
+            break
+        except FileExistsError:
+            target, n = base.with_name(f"{base.name}-{n}"), n + 1
     for path, content in snapshot.items():
         if content is not None:
             dst = target / path.relative_to(CONFIG_DIR)
@@ -475,25 +557,33 @@ async def install(request: web.Request) -> web.Response:
     except ManualSetup as err:
         return web.json_response({"ok": False, "error": str(err), "manual": True}, status=409)
 
+    # Startwerte nur für Helfer, die es vor dieser Installation noch nicht gab
+    try:
+        before = await existing_entities()
+        new_helpers = [e for e in DEFAULTS if e not in before]
+    except Exception as err:  # noqa: BLE001 – im Zweifel nichts überschreiben
+        LOG.info("Vorhandene Helfer nicht lesbar, keine Startwerte: %s", err)
+        new_helpers = []
+
     haus_dst = [haus_target(plan.package_path, src) for src in haus_files()]
     snapshot = _snapshot([config_file, plan.package_path, BLUEPRINT_DST, *haus_dst])
     backup_dir = _backup(snapshot)
     steps.append(f"Sicherung angelegt: {backup_dir.relative_to(CONFIG_DIR)}")
     try:
         if plan.new_config is not None:
-            config_file.write_text(plan.new_config)
+            write_atomic(config_file, plan.new_config)
         steps.append(plan.note)
         content = text
         if plan.merge:
             content = "jotunland:\n" + "\n".join(f"  {line}" if line else line for line in text.splitlines()) + "\n"
         plan.package_path.parent.mkdir(parents=True, exist_ok=True)
-        plan.package_path.write_text(content)
+        write_atomic(plan.package_path, content)
         steps.append(f"Paket gespeichert: {plan.package_path.relative_to(CONFIG_DIR)}")
         BLUEPRINT_DST.parent.mkdir(parents=True, exist_ok=True)
-        BLUEPRINT_DST.write_text(BLUEPRINT_SRC.read_text())
+        write_atomic(BLUEPRINT_DST, BLUEPRINT_SRC.read_text())
         steps.append(f"Blueprint gespeichert: {BLUEPRINT_DST.relative_to(CONFIG_DIR)}")
         for src, dst in zip(haus_files(), haus_dst):
-            dst.write_text(haus_content(src, plan.merge))
+            write_atomic(dst, haus_content(src, plan.merge))
             steps.append(f"Hausregel gespeichert: {dst.relative_to(CONFIG_DIR)}")
         await check_config()
         steps.append("Konfiguration geprüft: gültig")
@@ -506,7 +596,9 @@ async def install(request: web.Request) -> web.Response:
         )
 
     state = load_state()
-    state.update(package_path=str(plan.package_path), pending_defaults=True, installed_at=time.time())
+    if state.get("pending_defaults"):  # vorige Installation hat ihre Startwerte noch nicht gesetzt
+        new_helpers = sorted(set(new_helpers) | set(state.get("defaults_for") or []))
+    state.update(package_path=str(plan.package_path), pending_defaults=True, defaults_for=new_helpers, installed_at=time.time())
     save_state(state)
     if restart:
         asyncio.create_task(restart_later())
@@ -517,10 +609,21 @@ async def install(request: web.Request) -> web.Response:
 
 async def uninstall(_request: web.Request) -> web.Response:
     path, _ = installed_package()
-    snapshot = _snapshot([p for p in (path, BLUEPRINT_DST) if p])
+    config_file = CONFIG_DIR / "configuration.yaml"
+    snapshot = _snapshot([p for p in (path, BLUEPRINT_DST, config_file) if p])
     _backup(snapshot)
-    for p in snapshot:
-        p.unlink(missing_ok=True)
+    # die von der Installation eingetragene Zeile „jotunland: !include …“ wieder entfernen,
+    # sonst verweist configuration.yaml auf eine gelöschte Datei
+    cfg = snapshot[config_file]
+    if cfg is not None and path is not None:
+        rel = re.escape(path.relative_to(CONFIG_DIR).as_posix())
+        line_re = re.compile(rf"^\s+jotunland:\s*!include\s+['\"]?{rel}['\"]?\s*(#.*)?$")
+        kept = [line for line in cfg.splitlines() if not line_re.match(line)]
+        if len(kept) != len(cfg.splitlines()):
+            write_atomic(config_file, "\n".join(kept) + "\n")
+    for p in (path, BLUEPRINT_DST):
+        if p:
+            p.unlink(missing_ok=True)
     try:
         await check_config()
     except Exception as err:  # noqa: BLE001 – z. B. eigene Automationen nutzen den Blueprint noch
@@ -548,7 +651,7 @@ async def set_secrets(request: web.Request) -> web.Response:
     old_text = SECRETS_FILE.read_text() if SECRETS_FILE.is_file() else ""
     lines = [f"{k}: {json.dumps(v.strip(), ensure_ascii=False)}" for k, v in values.items()]
     sep = "" if not old_text or old_text.endswith("\n") else "\n"
-    SECRETS_FILE.write_text(old_text + sep + "# eingetragen vom Jotunland-Add-on\n" + "\n".join(lines) + "\n")
+    write_atomic(SECRETS_FILE, old_text + sep + "# eingetragen vom Jotunland-Add-on\n" + "\n".join(lines) + "\n")
     LOG.info("Geheimwerte eingetragen: %s", ", ".join(values))
     return web.json_response({"ok": True, "saved": sorted(values)})
 
@@ -595,6 +698,8 @@ async def websocket_proxy(request: web.Request) -> web.WebSocketResponse:
             _, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
             for task in pending:
                 task.cancel()
+            # Ausnahmen abholen, sonst meldet asyncio "Task exception was never retrieved"
+            await asyncio.gather(*tasks, return_exceptions=True)
     except Exception as err:  # noqa: BLE001 – HA startet neu o. Ä.; die Oberfläche verbindet sich neu
         LOG.info("WebSocket beendet: %s", err)
     finally:

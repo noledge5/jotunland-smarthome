@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Check, Loader2 } from "lucide-react";
+import { Check, Loader2, RefreshCw } from "lucide-react";
 import { useHass } from "../ha/HassContext";
 import { Badge } from "../components/ui";
 import { SLOTS } from "../discovery";
@@ -186,8 +186,15 @@ export function Wizard({ goTo }: { goTo: (tab: string) => void }) {
           done={st.packageCurrent}
           title={st.packageCurrent ? "Automationen installiert" : addon?.package.installed ? "Automationen aktualisieren" : "Automationen installieren"}
           actions={
-            !st.packageCurrent &&
-            (addon && addon.setup.automatic ? (
+            st.packageCurrent ? (
+              // Zuordnung geändert, ohne dass das Add-on es erkennt? Dann von Hand neu einspielen.
+              addon?.setup.automatic && (
+                <button type="button" className="btn small" disabled={!!busy || restarting} onClick={install}>
+                  {busy === "install" || restarting ? <Loader2 size={14} className="spin" /> : <RefreshCw size={14} />}
+                  {restarting ? " Home Assistant startet neu …" : " Neu installieren"}
+                </button>
+              )
+            ) : (addon && addon.setup.automatic ? (
               <button type="button" className="btn primary small" disabled={!!busy || restarting} onClick={install}>
                 {busy === "install" || restarting ? <Loader2 size={14} className="spin" /> : <Check size={14} />}
                 {restarting ? " Home Assistant startet neu …" : addon.package.installed ? " Aktualisieren" : " Installieren"}

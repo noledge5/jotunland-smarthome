@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.11.0
+Prüfung und Fehlerbehebung (Paket-Version 8)
+- **AC THOR – Batterie-Vorrang wirkt:** unter dem Vorrang bekommt der Heizstab nur echte
+  Einspeisung. Lädt die Batterie gerade mit dem Rest, fährt er schrittweise zurück (vorher
+  nahm er der Batterie bis zu 2,7 kW weg)
+- **AC THOR – sicher nach Neustart:** ohne Netz-/Batteriewerte wird kein alter Sollwert mehr
+  geschrieben; beim Wechsel Hand → Automatik startet die Automatik bei 0 statt mit einem
+  stundenalten Wert
+- **AC THOR – Modbus:** 200 ms Abstand zwischen Anfragen, Ist-Leistung alle 15 s – behebt die
+  Fehler „transaction id mismatch“
+- **Paket ohne Platzhalter-Fehler:** Automationen für Wallbox und Pelletkessel werden nur
+  eingespielt, wenn die Geräte zugeordnet sind (keine „unknown entity“-Meldungen mehr beim Start)
+- **Wallbox:** PV-Überschuss pausiert auch, wenn der Überschuss schon beim Umschalten fehlt;
+  „Ladevorgang beendet“ rechnet kW richtig um; Überschuss ohne doppelt abgezogene Batterie
+- **Fenster-Blueprint:** stellt die Heizung nicht mehr auf „aus“ zurück, wenn mehrere Fenster
+  offen waren, und vergisst den gespeicherten Zustand nach dem Wiederherstellen
+- **Neu installieren:** nach einer geänderten Zuordnung bietet der Assistent das Einspielen an
+- **Installation:** eigene Einstellungen (z. B. 1 Phase, Batterie-Vorrang 0 %) werden beim
+  Aktualisieren nicht mehr auf Startwerte gesetzt; Fehler in Hausregeln werden angezeigt;
+  benannte Pakete und absolute Pfade funktionieren; Dateien werden atomar geschrieben
+- **Oberfläche:** verbindet sich nach einem HA-Neustart selbst neu (kein Anmeldeformular im
+  Add-on), Regler bei nicht verfügbaren Geräten gesperrt statt „NaN“, Solltemperaturen ohne
+  Rundungsfehler bestätigt, „Heute“ wechselt um Mitternacht, Verlauf zeigt immer den
+  gewählten Zeitraum
+
 ## 0.10.2
 - **Schilder bleiben angeschlossen:** wird ein Schild von PV, Netz, Batterie, Warmwasser oder
   Wallbox verschoben, läuft eine Leitung vom Bauteil bis zum Schild – beim Ziehen sofort, mit

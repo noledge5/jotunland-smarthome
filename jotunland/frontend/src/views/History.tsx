@@ -16,6 +16,7 @@ import {
   toRows,
   useLogbook,
   useRuns,
+  useToday,
   type Category,
   type EventRow,
   type Run,
@@ -27,8 +28,7 @@ const RANGES = [
   { value: "woche", label: "7 Tage" },
 ];
 
-function rangeStart(range: string): number {
-  const today = startOfDay(Date.now());
+function rangeStart(range: string, today: number): number {
   return range === "heute" ? today : range === "gestern" ? today - DAY : today - 6 * DAY;
 }
 
@@ -113,7 +113,9 @@ export function History() {
   const { mapping, entities } = useHass();
   const [range, setRange] = useState("heute");
   const [category, setCategory] = useState<"alle" | Category>("alle");
-  const from = useMemo(() => rangeStart(range), [range]);
+  // "Heute" nach Mitternacht neu berechnen
+  const today = useToday();
+  const from = useMemo(() => rangeStart(range, today), [range, today]);
 
   const devices = DEVICES.filter((d) => mapping[d.slot]);
   const { runs, loading: runsLoading, error: runsError, reload: reloadRuns } = useRuns(devices.map((d) => mapping[d.slot]), from);

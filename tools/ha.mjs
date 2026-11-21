@@ -142,20 +142,44 @@ async function checkConfig() {
   return r.result === "valid";
 }
 
-/** Konfigurationsfehler, die HA seit `since` protokolliert hat. Die Prüfung meldet z. B. fehlerhafte
- *  Template-Sensoren nicht – sie tauchen erst beim Laden im Protokoll auf. */
-async function configErrorsSince(since, fileFilter) {
+async function systemLog() {
   const ws = await socket();
-  const entries = await ws.send({ type: "system_log/list" });
-  ws.close();
+  try {
+    return await ws.send({ type: "system_log/list" });
+  } finally {
+    ws.close();
+  }
+}
+
+/** Stand des HA-Systemprotokolls vor dem Neuladen. Verglichen wird später mit HA-eigenen Zeitstempeln –
+ *  die Uhr des PCs spielt keine Rolle. */
+async function logSnapshot() {
+  const seen = new Map();
+  for (const e of await systemLog()) seen.set(JSON.stringify([e.name, e.source]), { stamp: `${e.timestamp}|${e.count}`, messages: new Set(e.message) });
+  return seen;
+}
+
+/** Konfigurationsfehler, die HA seit dem Schnappschuss `before` neu protokolliert hat. Die Prüfung meldet z. B.
+ *  fehlerhafte Template-Sensoren nicht – sie tauchen erst beim Laden im Protokoll auf. */
+async function configErrorsSince(before, fileFilter) {
+  const entries = await systemLog();
   return entries
-    .filter((e) => e.timestamp >= since && ["ERROR", "CRITICAL"].includes(e.level))
-    .flatMap((e) => e.message)
+    .filter((e) => ["ERROR", "CRITICAL"].includes(e.level))
+    .flatMap((e) => {
+      const old = before.get(JSON.stringify([e.name, e.source]));
+      if (!old) return e.message;
+      if (old.stamp === `${e.timestamp}|${e.count}`) return [];
+      const neu = e.message.filter((m) => !old.messages.has(m));
+      return neu.length ? neu : e.message; // gleiche Meldung erneut aufgetreten
+    })
     .filter((m) => /Invalid config|Error loading|failed to setup|Setup failed/i.test(m) && (!fileFilter || m.includes(fileFilter)));
 }
 
+// Diese Bereiche lädt reload() neu – alles andere (modbus, sensor, utility_meter, recorder …) braucht einen Neustart
+const RELOADED = ["input_boolean", "input_number", "input_select", "input_datetime", "input_text", "template", "script", "automation"];
+
 async function reload() {
-  for (const svc of ["input_boolean", "input_number", "input_select", "input_datetime", "input_text", "template", "script", "automation"]) {
+  for (const svc of RELOADED) {
     try {
       await api("POST", `services/${svc}/reload`, {});
       console.log(`  ✓ ${svc} neu geladen`);
@@ -247,10 +271,10 @@ const commands = {
   },
 
   async reload() {
-    const since = Date.now() / 1000 - 1;
+    const before = await logSnapshot();
     await reload();
     await new Promise((r) => setTimeout(r, 1500));
-    for (const m of await configErrorsSince(since)) console.log(`  ✗ ${m}`);
+    for (const m of await configErrorsSince(before)) console.log(`  ✗ ${m}`);
   },
 
   async deploy(file, ziel) {
@@ -263,23 +287,49 @@ const commands = {
     if (await validateFile(file, { quiet: true })) throw new Error("Abgebrochen – erst die Fehler beheben.");
     console.log(`2/4 Kopieren nach ${target} (alte Fassung → .bak) …`);
     ssh(`mkdir -p "$(dirname '${target}')" && if [ -f '${target}' ]; then cp '${target}' '${target}.bak'; else rm -f '${target}.bak'; fi && cat > '${target}'`, readFileSync(file));
-    console.log(`3/4 Konfiguration prüfen …`);
-    if (!(await checkConfig())) {
+    let restored = false;
+    let reloaded = false;
+    const restore = () => {
       ssh(`if [ -f '${target}.bak' ]; then mv '${target}.bak' '${target}'; else rm -f '${target}'; fi`);
-      throw new Error("Zurückgesetzt – Home Assistant läuft unverändert weiter.");
-    }
-    console.log(`4/4 Neu laden …`);
-    const since = Date.now() / 1000 - 1;
-    await reload();
-    await new Promise((r) => setTimeout(r, 1500));
-    const errors = await configErrorsSince(since, basename(target));
-    if (errors.length) {
-      for (const m of errors) console.log(`  ✗ ${m}`);
-      ssh(`if [ -f '${target}.bak' ]; then mv '${target}.bak' '${target}'; else rm -f '${target}'; fi`);
+      restored = true;
+    };
+    try {
+      console.log(`3/4 Konfiguration prüfen …`);
+      if (!(await checkConfig())) {
+        restore();
+        throw new Error("Zurückgesetzt – Home Assistant läuft unverändert weiter.");
+      }
+      console.log(`4/4 Neu laden …`);
+      const before = await logSnapshot();
+      reloaded = true;
       await reload();
-      throw new Error("Home Assistant hat die Datei beim Laden abgelehnt – alte Fassung ist wieder aktiv.");
+      await new Promise((r) => setTimeout(r, 1500));
+      const errors = await configErrorsSince(before, basename(target));
+      if (errors.length) {
+        for (const m of errors) console.log(`  ✗ ${m}`);
+        restore();
+        await reload();
+        throw new Error("Home Assistant hat die Datei beim Laden abgelehnt – alte Fassung ist wieder aktiv.");
+      }
+    } catch (err) {
+      if (!restored) {
+        // unerwarteter Fehler (Netz, SSH …) – alte Fassung trotzdem zurückholen
+        try {
+          restore();
+          if (reloaded) await reload();
+          console.log("  ↩ alte Fassung wiederhergestellt");
+        } catch (err2) {
+          console.log(`  ⚠ Zurücksetzen fehlgeschlagen: ${err2.message} – alte Fassung liegt in ${target}.bak`);
+        }
+      }
+      throw err;
     }
-    console.log(`✓ ${basename(file)} ist aktiv.`);
+    const doc = readYaml(file);
+    const restart = Array.isArray(doc) ? [] : Object.keys(doc).filter((d) => !RELOADED.includes(d));
+    if (restart.length) {
+      console.log(`⚠  Neustart nötig für: ${restart.join(", ")} – diese Teile werden erst nach einem Neustart von Home Assistant aktiv.`);
+      console.log(`✓ ${basename(file)} eingespielt – ${restart.length === Object.keys(doc).length ? "noch nichts" : "Automationen/Skripte/Helfer"} aktiv, Rest nach Neustart.`);
+    } else console.log(`✓ ${basename(file)} ist aktiv.`);
   },
 };
 

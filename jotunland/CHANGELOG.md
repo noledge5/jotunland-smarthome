@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.12.0
+Funk und Rückmeldung der Thermostate (Paket-Version 9)
+- **„keine Rückmeldung“ mit Grund:** bestätigt ein Gerät einen Befehl nicht, steht jetzt dabei,
+  woran es wahrscheinlich liegt – „Funk schwach (21/255)“, „Gerät offline“ oder „Gerät hat den
+  Befehl nicht bestätigt“. Die Funkqualität kommt vom Zigbee2MQTT-Sensor …_linkquality am selben
+  Gerät (in Home Assistant oft deaktiviert – dann wird nichts geraten)
+- **Schild „Funk schwach“** auf Thermostat-Karten, Gerätekacheln und den Raum-Schildern am Haus,
+  wenn die Funkqualität unter 40/255 liegt
+- **Heizung – nicht übernommene Sollwerte im Logbuch:** „Thermostate stellen“ wartet einmal bis zu
+  60 s und meldet unter „Jotunland Heizung“ z. B. „Nicht übernommen: Thermostat Schlafzimmer
+  (Ist-Soll 17 °C statt 16 °C)“. Haben alle übernommen, gibt es keinen Eintrag
+- **Heizzeiten:** die Entscheidung steht jetzt vor dem Stellen im Logbuch (nicht erst nach der Wartezeit)
+
 ## 0.11.1
 - **Falsche Wallbox erkannt:** der Schalter „AdGuard Home Abfrageprotokoll“ wurde als
   Wallbox-Schalter zugeordnet („epro“ steckt in „Abfrag**epro**tokoll“). Hersteller-Erkennung für

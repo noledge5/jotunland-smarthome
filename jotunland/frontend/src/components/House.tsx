@@ -6,7 +6,7 @@ import { useEntity, useHass } from "../ha/HassContext";
 import { fmtNum, fmtPower, fmtState, fmtTarget, fmtTemp, num, unavailable, watts } from "../format";
 import { HelperControl, roundStep, sameTarget } from "./controls";
 import { useEnergy } from "./EnergyFlow";
-import { Fb, useConfirm, WAIT } from "./feedback";
+import { Fb, LinkBadge, useConfirm, WAIT } from "./feedback";
 import { acThorLabel, useAcThor } from "./systems";
 
 // ---------- Abbildung: Isometrie 2:1, x nach rechts unten, y nach links unten, z nach oben ----------
@@ -129,7 +129,7 @@ function houseSvg(s: ArtState) {
 }
 
 // ---------- Schilder ----------
-interface Pin { id: string; name: string; value: string; entity?: string; ctl?: ReactNode }
+interface Pin { id: string; name: string; value: string; entity?: string; ctl?: ReactNode; badge?: ReactNode }
 type Layout = Record<string, [number, number]>;
 
 const at = (x: number, y: number): [number, number] => [+((x / W) * 100).toFixed(1), +((y / H) * 100).toFixed(1)];
@@ -152,7 +152,7 @@ function RoomStep({ entity }: { entity: HassEntity }) {
   };
   return (
     <div className="helper">
-      <span className="helper-label">Soll <Fb fb={fb} /></span>
+      <span className="helper-label">Soll <Fb fb={fb} entity={id} /></span>
       <span className="house-step">
         <button type="button" className="round sm" aria-label="Kälter" disabled={off} onClick={() => set(-step)}><Minus size={16} /></button>
         <b className={fb.sending ? "sending" : ""}>{off ? "Aus" : fmtTemp(target)}</b>
@@ -221,6 +221,7 @@ function usePins(): Pin[] {
       value: cur == null ? fmtState(c) : `${fmtNum(Number(cur), 1)} °C`,
       entity: r.climate,
       ctl: <RoomStep entity={c} />,
+      badge: <LinkBadge entity={r.climate} />,
     });
   }
   if (wbStatus || wbPower || wbMode) {
@@ -464,7 +465,7 @@ export function House() {
                 onKeyDown={(e) => onKey(e, p.id)}
               >
                 <button type="button" className="house-pin-head" aria-expanded={p.ctl ? isOpen : undefined} tabIndex={editing ? -1 : undefined} onClick={() => p.ctl && !editing && setOpen(isOpen ? null : p.id)}>
-                  <span className="house-pin-name">{p.name}</span>
+                  <span className="house-pin-name">{p.name} {p.badge}</span>
                   <span className="house-pin-value">{p.value}</span>
                 </button>
                 {isOpen && <div className="house-pin-ctl helpers">{p.ctl}</div>}

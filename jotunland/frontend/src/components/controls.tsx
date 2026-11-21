@@ -7,7 +7,7 @@ import type { LucideIcon } from "lucide-react";
 import { useHass } from "../ha/HassContext";
 import { fmtNum, fmtState, fmtTarget, fmtTemp, name, relTime, unavailable } from "../format";
 import { Badge, Chips, Slider, Toggle } from "./ui";
-import { Fb, useConfirm, WAIT } from "./feedback";
+import { Fb, LinkBadge, useConfirm, WAIT } from "./feedback";
 
 /** Auf die Schrittweite runden – ohne Gleitkomma-Rest (20.200000000000003 → 20.2) */
 export function roundStep(v: number, step: number): number {
@@ -64,6 +64,7 @@ export function Thermostat({ entity, title, windowSensor, humidity }: { entity: 
           {heating && <Badge tone="warn"><Flame size={12} /> heizt</Badge>}
           {battery !== undefined && Number(battery) < 25 && <Badge tone="bad"><Battery size={12} /> {String(battery)} %</Badge>}
           {unavailable(entity) && <Badge tone="bad">offline</Badge>}
+          <LinkBadge entity={id} />
         </div>
       </div>
       <div className="thermo-body">
@@ -85,7 +86,7 @@ export function Thermostat({ entity, title, windowSensor, humidity }: { entity: 
           </button>
         </div>
       </div>
-      <Fb fb={{ sending: fbT.sending || fbM.sending, timedOut: fbT.timedOut || fbM.timedOut }} blocked={blocked} />
+      <Fb fb={{ sending: fbT.sending || fbM.sending, timedOut: fbT.timedOut || fbM.timedOut }} blocked={blocked} entity={id} />
       {modes.length > 1 && (
         <Chips
           value={fbM.sending ? fbM.value : entity.state}
@@ -171,7 +172,7 @@ export function HelperControl({ entity, label, confirm, blocked }: { entity: Has
   return (
     <div className={`helper ${wide ? "wide" : ""}`}>
       <span className="helper-label">
-        {title} <Fb fb={fb} blocked={blocked} />
+        {title} <Fb fb={fb} blocked={blocked} entity={id} />
       </span>
       {control}
     </div>
@@ -215,7 +216,7 @@ export function EntityTile({ entity, onRename }: { entity: HassEntity; onRename?
           <button type="button" className="tile-name" onClick={onRename} title={id}>{name(entity)}</button>
           <span className="tile-state">
             {fmtState(entity)}{d === "light" && on && entity.attributes.brightness ? ` · ${Math.round((Number(entity.attributes.brightness) / 255) * 100)} %` : ""}{" "}
-            <Fb fb={{ sending: fb.sending || dim.sending, timedOut: fb.timedOut || dim.timedOut }} />
+            <Fb fb={{ sending: fb.sending || dim.sending, timedOut: fb.timedOut || dim.timedOut }} entity={id} /> <LinkBadge entity={id} />
           </span>
         </div>
         {toggleable && (

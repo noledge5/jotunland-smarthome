@@ -87,7 +87,7 @@ export function WallboxCard() {
       action={
         sw?.entity_id.startsWith("switch.") && (
           <span className="ctl">
-            <Fb fb={fb} />
+            <Fb fb={fb} entity={sw.entity_id} />
             <Toggle
               on={fb.sending ? !!fb.value : sw.state === "on"}
               busy={fb.sending}

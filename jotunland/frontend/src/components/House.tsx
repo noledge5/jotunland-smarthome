@@ -4,7 +4,7 @@ import type { HassEntity } from "home-assistant-js-websocket";
 import { Minus, Plus, X } from "lucide-react";
 import { useEntity, useHass } from "../ha/HassContext";
 import { fmtNum, fmtPower, fmtState, fmtTarget, fmtTemp, num, unavailable, watts } from "../format";
-import { HelperControl } from "./controls";
+import { HelperControl, roundStep, sameTarget } from "./controls";
 import { useEnergy } from "./EnergyFlow";
 import { Fb, useConfirm, WAIT } from "./feedback";
 import { acThorLabel, useAcThor } from "./systems";
@@ -147,8 +147,8 @@ function RoomStep({ entity }: { entity: HassEntity }) {
   const target = fb.sending ? fb.value : a.temperature == null ? undefined : Number(a.temperature);
   const off = entity.state === "off" || unavailable(entity) || target === undefined;
   const set = (d: number) => {
-    const next = Math.min(Number(a.max_temp ?? 30), Math.max(Number(a.min_temp ?? 5), Math.round((target! + d) / step) * step));
-    fb.send(next, (e) => Number(e[id]?.attributes.temperature) === next, WAIT.thermostat, "climate", "set_temperature", { entity_id: id, temperature: next });
+    const next = Math.min(Number(a.max_temp ?? 30), Math.max(Number(a.min_temp ?? 5), roundStep(target! + d, step)));
+    fb.send(next, (e) => sameTarget(e[id]?.attributes.temperature, next, step), WAIT.thermostat, "climate", "set_temperature", { entity_id: id, temperature: next });
   };
   return (
     <div className="helper">

@@ -114,7 +114,7 @@ export const SLOTS: Record<string, SlotRule> = {
   "wallbox.status": { group: "Wallbox", label: "Status", domains: ["sensor"], vendor: WALLBOX, vendorRequired: true, need: [/status|state|zustand|car/], numeric: false, exclude: /error|fehler/ },
   // go-e (API v2) liefert Leistung je Phase und gesamt – "nrg_11" bzw. "gesamt/total" ist die richtige
   "wallbox.power": { group: "Wallbox", label: "Ladeleistung", domains: ["sensor"], units: POWER, vendor: WALLBOX, vendorRequired: true, bonus: [/power|leistung|nrg|charging|laden/, /\bnrg 11\b|gesamt|total/], exclude: /\b(max|limit|l[123]|n|phase)\b|reactive|offered|blind|angeboten/ },
-  "wallbox.session_energy": { group: "Wallbox", label: "Geladen (Sitzung)", domains: ["sensor"], units: ENERGY, vendor: WALLBOX, vendorRequired: true, bonus: [/session|geladen|charged|\bwh\b/], exclude: /total|gesamt|eto/ },
+  "wallbox.session_energy": { group: "Wallbox", label: "Geladen (Sitzung)", domains: ["sensor"], units: ["kWh"], vendor: WALLBOX, vendorRequired: true, bonus: [/session|geladen|charged|\bwh\b/], exclude: /total|gesamt|eto/ },
   "wallbox.charging_switch": { group: "Wallbox", label: "Laden an/aus", domains: ["switch", "select"], vendor: WALLBOX, vendorRequired: true, bonus: [/charg|laden|frc|force|allow|start/] },
   "wallbox.current": { group: "Wallbox", label: "Ladestrom", domains: ["number", "input_number"], units: ["A"], vendor: WALLBOX, vendorRequired: true, bonus: [/amp|strom|current/], exclude: /\b(max|min|limit)\b/ },
   "wallbox.mode": { group: "Wallbox", label: "Lademodus (Jotunland)", domains: ["input_select"], need: [/jotunland/, /wallbox|lade/] },
@@ -128,8 +128,8 @@ export const SLOTS: Record<string, SlotRule> = {
   "pellet.buffer_top": { group: "Pelletkessel (Fröling)", label: "Puffer oben", domains: ["sensor"], units: TEMP, need: [/puffer|buffer/, /oben|top|fuehler 1/], vendor: FROELING },
   "pellet.buffer_bottom": { group: "Pelletkessel (Fröling)", label: "Puffer unten", domains: ["sensor"], units: TEMP, need: [/puffer|buffer/, /unten|bottom|fuehler 2/], vendor: FROELING },
   "pellet.outside_temp": { group: "Pelletkessel (Fröling)", label: "Außentemperatur", domains: ["sensor"], units: TEMP, need: [/aussen|outside|outdoor|draussen/], vendor: FROELING },
-  "pellet.pellet_stock": { group: "Pelletkessel (Fröling)", label: "Pelletvorrat", domains: ["sensor"], units: ["%", "kg", "t"], vendor: FROELING, vendorRequired: true, need: [/vorrat|lager|stock|fuel|fuell|pellet/] },
-  "pellet.error": { group: "Pelletkessel (Fröling)", label: "Störung", domains: ["binary_sensor", "sensor"], vendor: FROELING, vendorRequired: true, need: [/stoer|error|fehler|problem/] },
+  "pellet.pellet_stock": { group: "Pelletkessel (Fröling)", label: "Pelletvorrat", domains: ["sensor"], units: ["%"], vendor: FROELING, vendorRequired: true, need: [/vorrat|lager|stock|fuel|fuell|pellet/] },
+  "pellet.error": { group: "Pelletkessel (Fröling)", label: "Störung", domains: ["binary_sensor"], vendor: FROELING, vendorRequired: true, need: [/stoer|error|fehler|problem/] },
 };
 
 export interface Candidate {

@@ -26,7 +26,12 @@ export function useSetupState() {
     const pkg = renderPackage(mapping, rooms);
     const helpersInstalled = !!entities[HELPER_MARKER];
     const hausCurrent = !addon?.haus || addon.haus.files.every((f) => f.current);
-    const packageCurrent = addon ? addon.package.installed && (addon.package.version ?? 0) >= PACKAGE_VERSION && hausCurrent : helpersInstalled;
+    // Fingerabdruck des installierten Pakets (meldet das Add-on ab Paket 8) – erkennt auch eine
+    // geänderte Zuordnung bei gleicher Version. Ältere Add-ons melden ihn nicht → nur Version.
+    const installedHash = addon?.package.hash;
+    const packageCurrent = addon
+      ? addon.package.installed && (addon.package.version ?? 0) >= PACKAGE_VERSION && (!installedHash || installedHash === pkg.hash) && hausCurrent
+      : helpersInstalled;
     const helpersNeedingDefaults = Object.keys(HELPER_DEFAULTS).filter((id) => needsDefault(entities[id]));
     const windowRooms = rooms.filter((r) => r.window).length;
     const open = [!packageCurrent, suggestions.length > 0, helpersInstalled && helpersNeedingDefaults.length > 0].filter(Boolean).length;

@@ -3,7 +3,7 @@ import { useMemo } from "react";
 import type { HassEntities } from "home-assistant-js-websocket";
 import { useEntity, useHass } from "../ha/HassContext";
 import { MYPV } from "../discovery";
-import { fmtClock, startOfDay, useRuns } from "../history";
+import { fmtClock, useRuns, useToday } from "../history";
 import { DayStrip, runSummary } from "./Timeline";
 import { fmtNum, fmtPower, fmtState, fmtTemp, num, unavailable, watts } from "../format";
 import { Badge, Bar, Card, Chips, Empty, Stat, Toggle } from "./ui";
@@ -156,7 +156,7 @@ export function AcThorCard() {
   const temp = useEntity("acthor.temperature");
   const target = useEntity("acthor.target");
   const { controls, limit, full, hand, handPower, powerConfirm } = useAcThor();
-  const today = useMemo(() => startOfDay(Date.now()), []);
+  const today = useToday();
   const { runs } = useRuns([power?.entity_id], today);
   if (!power && !temp) return <Card title="Warmwasser · AC THOR" icon={Droplets} tone="water"><Missing what="Der AC THOR ist" /></Card>;
   const t = num(temp);

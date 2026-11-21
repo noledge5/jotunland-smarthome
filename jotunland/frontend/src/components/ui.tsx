@@ -84,8 +84,12 @@ export function Slider({ value, min, max, step, onCommit, format, disabled }: {
   useEffect(() => {
     if (!dragging) setLocal(value);
   }, [value, dragging]);
+  // Kein gültiger Wert (unavailable/unknown): "–" zeigen, nicht bedienbar, nie senden
+  const valid = Number.isFinite(value) && Number.isFinite(local);
+  const off = disabled || !valid;
   const commit = () => {
     setDragging(false);
+    if (off) return;
     // Lehnt Home Assistant ab, wieder den echten Wert zeigen
     if (local !== value) Promise.resolve(onCommit(local)).catch(() => setLocal(value));
   };
@@ -96,16 +100,16 @@ export function Slider({ value, min, max, step, onCommit, format, disabled }: {
         min={min}
         max={max}
         step={step}
-        value={local}
-        disabled={disabled}
-        style={{ ["--p" as string]: `${((local - min) / (max - min || 1)) * 100}%` }}
+        value={valid ? local : min}
+        disabled={off}
+        style={{ ["--p" as string]: `${valid ? ((local - min) / (max - min || 1)) * 100 : 0}%` }}
         onPointerDown={() => setDragging(true)}
         onChange={(ev) => setLocal(Number(ev.target.value))}
         onPointerUp={commit}
         onKeyUp={commit}
         onBlur={() => dragging && commit()}
       />
-      <span className="slider-value">{format ? format(local) : local}</span>
+      <span className="slider-value">{!valid ? "–" : format ? format(local) : local}</span>
     </div>
   );
 }

@@ -13,8 +13,8 @@
 # Neu:
 #  - Die Batterieleistung (Encharge, + = Entladen) geht in die Rechnung ein: Der AC THOR darf die
 #    Batterie nie entladen und nie Strom aus dem Netz ziehen.
-#  - Unter "Batterie-Vorrang bis" bekommt der AC THOR nur echte Einspeisung, darüber zusätzlich
-#    die Ladeleistung der Batterie.
+#  - Unter "Batterie-Vorrang bis" bekommt der AC THOR nur echte Einspeisung (ohne Einspeisung fährt
+#    er schrittweise zurück, damit die Batterie laden kann), darüber zusätzlich die Ladeleistung.
 #  - Gerechnet wird nur, wenn der Envoy einen neuen Netzwert liefert; pro Schritt höchstens
 #    +1,5 kW über der tatsächlichen AC-THOR-Leistung (kein Hochschaukeln, kein "Aufstauen",
 #    wenn der Speicher voll ist und der AC THOR nichts abnimmt).
@@ -36,6 +36,9 @@ modbus:
     type: tcp
     host: !secret ac_thor_ip
     port: 502
+    # Nur EINE Verbindung: Lesen (Register 1000 alle 15 s) und Schreiben (alle 20 s) laufen über dieselbe.
+    # Ohne Pause zwischen den Anfragen gab es Fehler "transaction id mismatch" – deshalb 200 ms Abstand.
+    message_wait_milliseconds: 200
     sensors:
       - name: "AC Thor Power"
         unique_id: ac_thor_power
@@ -45,7 +48,7 @@ modbus:
         unit_of_measurement: "W"
         device_class: power
         state_class: measurement
-        scan_interval: 10
+        scan_interval: 15
 
       - name: "AC Thor Temp 1"
         unique_id: ac_thor_temp_1
@@ -130,8 +133,13 @@ template:
           {% set ac = states('sensor.ac_thor_power') | float(0) %}
           {% if soc >= states('input_number.ac_thor_battery_min_soc') | float(95) %}
             {% set frei = ac - net - bat %}
-          {% else %}
+          {% elif net < -100 %}
+            {# Batterie-Vorrang: nur echte Einspeisung (über 100 W Reserve, die die Automation noch abzieht) #}
             {% set frei = ac - net - [bat, 0] | max %}
+          {% else %}
+            {# Batterie-Vorrang ohne Einspeisung: Die Batterie lädt gerade mit dem, was der AC THOR
+               übrig lässt – schrittweise zurückfahren (−500 W pro Envoy-Wert, nach Abzug der Reserve) #}
+            {% set frei = [ac - 500, 0] | max %}
           {% endif %}
           {% if net > 150 %}
             {% set frei = [frei, ac - net] | min %}
@@ -198,7 +206,10 @@ input_number:
     step: 5
     unit_of_measurement: "%"
     icon: mdi:battery-charging
-  # Kein "initial:" – nach dem ersten Einspielen einmal auf 60 setzen.
+  # Kein "initial:" – nach dem ersten Einspielen einmal auf 60 setzen (ein "initial:" würde den
+  # eingestellten Wert bei jedem Neustart überschreiben).
+  # Achtung: Der Fühler misst 10–20 K zu wenig (Messwert 60 °C ≈ real 79 °C). Real ~80 °C sind im
+  # Puffer normal (der Fröling-Kessel heizt ihn ebenso hoch) – Werte über 65 bedeuten aber real ~85–95 °C.
   ac_thor_max_temp_messwert:
     name: "AC Thor Abschalten ab (Messwert)"
     min: 40
@@ -321,6 +332,9 @@ automation:
             · Batterie {{ states('sensor.battery_power') }} W · SoC {{ states('sensor.envoy_122502001651_batterie') }} %
             · Ist {{ ist | int }} W · Speicher {{ states('sensor.ac_thor_temp_1') }} °C
             {%- if is_state('binary_sensor.ac_thor_speicher_voll', 'on') %} (voll){% endif %}
+            {%- if states('sensor.envoy_122502001651_batterie') | float(0) < states('input_number.ac_thor_battery_min_soc') | float(95) %}
+            · Batterie-Vorrang{% if (states('sensor.envoy_122502001651_aktueller_nettostromverbrauch') | float(0) * 1000) >= -100 %}: keine Einspeisung → zurückfahren{% endif %}
+            {%- endif %}
 
   # Schreibt den gültigen Sollwert sofort bei Änderung und danach alle 20 s (Watchdog).
   - id: ac_thor_manual_keepalive
@@ -352,15 +366,21 @@ automation:
             {%- elif is_state('input_boolean.ac_thor_manual_override', 'on') -%}
               {{ states('input_number.ac_thor_manual_setpoint_w') | int(0) }}
             {%- elif is_state('input_boolean.ac_thor_surplus_enabled', 'on') -%}
-              {{ states('input_number.ac_thor_auto_sollwert_w') | int(0) }}
+              {#- ohne Überschuss-Wert (z. B. nach Neustart) keinen alten Sollwert schreiben -#}
+              {{ states('input_number.ac_thor_auto_sollwert_w') | int(0) if has_value('sensor.pv_surplus_w') else 0 }}
             {%- else -%}
               0
             {%- endif -%}
 
   # Fehlen Netz- oder Batteriewerte länger als 2 Minuten: Automatik auf 0.
+  # Auch nach einem Neustart: Ist der Sensor dann schon "unavailable", gibt es keinen Wechsel dorthin –
+  # sonst bliebe der gespeicherte alte Sollwert stehen.
   - id: ac_thor_failsafe_zero
     alias: "AC Thor: Sollwert 0 ohne Messwerte"
     triggers:
+      - trigger: homeassistant
+        event: start
+        id: start
       - trigger: state
         entity_id: sensor.pv_surplus_w
         to: "unavailable"
@@ -369,6 +389,39 @@ automation:
         entity_id: sensor.pv_surplus_w
         to: "unknown"
         for: "00:02:00"
+    actions:
+      - if:
+          - condition: trigger
+            id: start
+        then:
+          - delay: "00:00:30"
+      - condition: template
+        value_template: "{{ not has_value('sensor.pv_surplus_w') }}"
+      - action: input_number.set_value
+        target: { entity_id: input_number.ac_thor_auto_sollwert_w }
+        data: { value: 0 }
+      - action: logbook.log
+        continue_on_error: true
+        data:
+          name: "Jotunland AC THOR"
+          entity_id: input_number.ac_thor_auto_sollwert_w
+          message: "Keine Netz-/Batteriewerte → Automatik 0 W"
+
+  # Handbetrieb an oder Automatik aus: automatischen Sollwert auf 0, damit beim Zurückschalten
+  # kein stundenalter Wert geschrieben wird (die Automatik fährt dann von der Ist-Leistung neu hoch).
+  - id: ac_thor_auto_sollwert_zuruecksetzen
+    alias: "AC Thor: Automatik-Sollwert zurücksetzen"
+    triggers:
+      - trigger: state
+        entity_id: input_boolean.ac_thor_manual_override
+        to: "on"
+      - trigger: state
+        entity_id: input_boolean.ac_thor_surplus_enabled
+        to: "off"
+    conditions:
+      - condition: numeric_state
+        entity_id: input_number.ac_thor_auto_sollwert_w
+        above: 0
     actions:
       - action: input_number.set_value
         target: { entity_id: input_number.ac_thor_auto_sollwert_w }

@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { callService as haCallService, subscribeEntities, type Connection, type HassEntities, type HassEntity } from "home-assistant-js-websocket";
-import { addonApi, connect, connectAddon, loadSettings, needsSetup, probeAddon, saveSettings, type AddonStatus, type ConnSettings } from "./connection";
+import { callService as haCallService, ERR_CANNOT_CONNECT, ERR_INVALID_AUTH, subscribeEntities, type Connection, type HassEntities, type HassEntity } from "home-assistant-js-websocket";
+import { addonApi, clearTokens, connect, connectAddon, loadSettings, needsSetup, probeAddon, saveSettings, servedViaIngress, type AddonStatus, type ConnSettings } from "./connection";
 import { startDemo, type DemoHome } from "./demo";
 import type { Area, DeviceInfo, EntityMeta, RegEntity } from "./types";
 import { EMPTY_CONFIG, loadConfig, resolveMapping, resolveRooms, type JotunConfig, type Mapping, type MappingSource, type RoomConfig } from "../config";
@@ -83,10 +83,31 @@ export function HassProvider({ children }: { children: ReactNode }) {
   const [decisions, setDecisions] = useState<Record<string, Decision>>({});
   const conn = useRef<Connection | null>(null);
   const demo = useRef<DemoHome | null>(null);
+  // Neuer Verbindungsversuch nach Fehlschlag (Zähler für die Wartezeit, retry löst den Versuch aus)
+  const tries = useRef(0);
+  const [retry, setRetry] = useState(0);
 
   useEffect(() => {
     loadConfig().then(setConfig);
-    probeAddon().then(setAddon);
+    let stopped = false;
+    let timer: number | undefined;
+    const probe = (n: number) =>
+      probeAddon().then((s) => {
+        if (stopped) return;
+        // Über Ingress ist es sicher das Add-on – keine Antwort heißt nur: Add-on startet noch
+        if (!s && servedViaIngress()) {
+          setError("Add-on antwortet nicht – neuer Versuch …");
+          timer = window.setTimeout(() => probe(n + 1), Math.min(30_000, 2_000 * 2 ** n));
+          return;
+        }
+        setError(undefined);
+        setAddon(s);
+      });
+    probe(0);
+    return () => {
+      stopped = true;
+      window.clearTimeout(timer);
+    };
   }, []);
 
   const refreshAddon = useCallback(async () => {
@@ -162,6 +183,7 @@ export function HassProvider({ children }: { children: ReactNode }) {
     let cancelled = false;
     let unsub: (() => void) | undefined;
     let unsubLog: (() => void) | undefined;
+    let retryTimer: number | undefined;
     // Home Assistant schickt jede Änderung einzeln – höchstens 5× pro Sekunde neu zeichnen
     let timer: number | undefined;
     let latest: HassEntities = {};
@@ -173,7 +195,7 @@ export function HassProvider({ children }: { children: ReactNode }) {
       }, 200);
     };
     setStatus("connecting");
-    setError(undefined);
+    if (!tries.current) setError(undefined); // bei Wiederholung den letzten Fehler stehen lassen
 
     if (settings.mode === "demo") {
       demo.current = startDemo((s) => !cancelled && setEntities(s));
@@ -194,7 +216,18 @@ export function HassProvider({ children }: { children: ReactNode }) {
         c.addEventListener("disconnected", () => setStatus("reconnecting"));
         c.addEventListener("ready", () => {
           setStatus("connected");
+          setError(undefined);
+          // während der Trennung kann sich Registry/Zuordnung geändert haben
+          refreshRegistry();
+          loadOverrides();
           loadDecisions();
+        });
+        // Neuverbindung scheitert an der Anmeldung (Token abgelaufen/widerrufen) – die Bibliothek gibt dann auf
+        c.addEventListener("reconnect-error", (_c, err) => {
+          if (cancelled) return;
+          if (err === ERR_INVALID_AUTH && !isAddon && settings.mode === "auto") clearTokens();
+          setError(err === ERR_INVALID_AUTH ? "Anmeldung abgelaufen – bitte neu anmelden" : `Neuverbindung fehlgeschlagen (Fehler ${String(err)})`);
+          setStatus("error");
         });
         unsub = subscribeEntities(c, onEntities);
         c.subscribeEvents<{ data: { name?: string; message?: string }; time_fired: string }>(
@@ -207,6 +240,8 @@ export function HassProvider({ children }: { children: ReactNode }) {
           },
           () => undefined, // ohne Admin-Rechte nur die geladenen Entscheidungen
         );
+        tries.current = 0;
+        setError(undefined);
         setStatus("connected");
         refreshRegistry();
         loadOverrides();
@@ -214,20 +249,30 @@ export function HassProvider({ children }: { children: ReactNode }) {
       })
       .catch((err: unknown) => {
         if (cancelled) return;
-        const msg = typeof err === "number" ? (err === 2 ? "Anmeldung fehlgeschlagen (Token ungültig?)" : err === 1 ? "Verbindung zu Home Assistant nicht möglich" : `Fehler ${err}`) : String(err);
+        const msg = typeof err === "number" ? (err === ERR_INVALID_AUTH ? "Anmeldung fehlgeschlagen (Token ungültig?)" : err === ERR_CANNOT_CONNECT ? "Verbindung zu Home Assistant nicht möglich" : `Fehler ${err}`) : String(err);
         setError(msg);
-        setStatus("error");
+        // Falsches Token/abgelehnte Anmeldung: neu anmelden. Sonst (HA startet neu, Netz weg, Add-on) später nochmal.
+        const permanent = !isAddon && typeof err === "number" && err !== ERR_CANNOT_CONNECT;
+        if (permanent) {
+          if (err === ERR_INVALID_AUTH && settings.mode === "auto") clearTokens();
+          tries.current = 0;
+          setStatus("error");
+          return;
+        }
+        setStatus("connecting");
+        retryTimer = window.setTimeout(() => setRetry((n) => n + 1), Math.min(30_000, 2_000 * 2 ** tries.current++));
       });
 
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
+      window.clearTimeout(retryTimer);
       unsub?.();
       unsubLog?.();
       conn.current?.close();
       conn.current = null;
     };
-  }, [settings, addonKnown, isAddon, refreshRegistry, loadOverrides, loadDecisions, addDecisions]);
+  }, [settings, addonKnown, isAddon, retry, refreshRegistry, loadOverrides, loadDecisions, addDecisions]);
 
   const [toasts, setToasts] = useState<Toast[]>([]);
   const notify = useCallback((text: string, tone: Toast["tone"] = "info") => {
@@ -277,6 +322,7 @@ export function HassProvider({ children }: { children: ReactNode }) {
   );
 
   const applySettings = useCallback((s: ConnSettings | null) => {
+    tries.current = 0;
     saveSettings(s);
     setEntities({});
     setSettings(s ?? loadSettings());

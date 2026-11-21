@@ -9,6 +9,15 @@ import { fmtNum, fmtState, fmtTarget, fmtTemp, name, relTime, unavailable } from
 import { Badge, Chips, Slider, Toggle } from "./ui";
 import { Fb, useConfirm, WAIT } from "./feedback";
 
+/** Auf die Schrittweite runden – ohne Gleitkomma-Rest (20.200000000000003 → 20.2) */
+export function roundStep(v: number, step: number): number {
+  const decimals = (String(step).split(".")[1] ?? "").length;
+  return Number((Math.round(v / step) * step).toFixed(decimals));
+}
+
+/** Meldet das Thermostat den gesendeten Sollwert? (Toleranz halbe Schrittweite) */
+export const sameTarget = (t: unknown, v: number, step: number) => t != null && Math.abs(Number(t) - v) < step / 2;
+
 const HVAC_LABEL: Record<string, string> = { heat: "Heizen", auto: "Auto", off: "Aus", cool: "Kühlen", heat_cool: "Auto", dry: "Trocknen", fan_only: "Lüfter" };
 
 /** Thermostat mit ±-Tasten. Änderungen werden gesammelt und nach kurzer Pause gesendet. */
@@ -29,13 +38,13 @@ export function Thermostat({ entity, title, windowSensor, humidity }: { entity: 
   const target = draft ?? (fbT.sending ? fbT.value : serverTarget);
 
   const change = (delta: number) => {
-    const next = Math.min(max, Math.max(min, Math.round(((target ?? 20) + delta) / step) * step));
+    const next = Math.min(max, Math.max(min, roundStep((target ?? 20) + delta, step)));
     setDraft(next);
     window.clearTimeout(timer.current);
     timer.current = window.setTimeout(() => {
       timer.current = undefined;
       setDraft(undefined);
-      fbT.send(next, (e) => Number(e[id]?.attributes.temperature) === next, WAIT.thermostat, "climate", "set_temperature", { entity_id: id, temperature: next });
+      fbT.send(next, (e) => sameTarget(e[id]?.attributes.temperature, next, step), WAIT.thermostat, "climate", "set_temperature", { entity_id: id, temperature: next });
     }, 700);
   };
 
@@ -125,9 +134,12 @@ export function HelperControl({ entity, label, confirm, blocked }: { entity: Has
     const max = Number(a.max ?? 100);
     const step = Number(a.step ?? 1);
     const unit = a.unit_of_measurement ? ` ${a.unit_of_measurement}` : "";
+    const value = typeof shown === "number" ? shown : Number(entity.state);
     control = (
       <Slider
-        value={typeof shown === "number" ? shown : Number(entity.state)}
+        value={value}
+        // unavailable/unknown: kein Wert → "–" und nicht bedienbar
+        disabled={!fb.sending && (unavailable(entity) || !Number.isFinite(value))}
         min={min}
         max={max}
         step={step}

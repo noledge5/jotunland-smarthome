@@ -80,6 +80,17 @@ export function fmtDay(ms: number): string {
   return new Date(ms).toLocaleDateString("de-DE", { weekday: "short", day: "2-digit", month: "2-digit" });
 }
 
+/** Beginn des heutigen Tages – springt um Mitternacht weiter. */
+export function useToday(): number {
+  const [today, setToday] = useState(() => startOfDay(Date.now()));
+  useEffect(() => {
+    // kurz nach Mitternacht neu rechnen (Timer kann nach Ruhezustand zu spät kommen → jede Minute prüfen)
+    const timer = window.setInterval(() => setToday(startOfDay(Date.now())), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+  return today;
+}
+
 /** Läufe mehrerer Leistungssensoren ab `from`. Aktualisiert sich jede Minute. */
 export function useRuns(entityIds: (string | undefined)[], from: number, thresholdW = 30) {
   const { ws, entities, status } = useHass();
@@ -91,9 +102,12 @@ export function useRuns(entityIds: (string | undefined)[], from: number, thresho
   const [runs, setRuns] = useState<Record<string, Run[]>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
+  // Nur die Antwort der jüngsten Anfrage zählt – ältere (anderer Zeitraum) verwerfen
+  const request = useRef(0);
 
   const load = useCallback(async () => {
-    if (!ids.length || status !== "connected") return;
+    const req = ++request.current;
+    if (!ids.length || status !== "connected") return setLoading(false);
     setLoading(true);
     setError(undefined);
     try {
@@ -107,6 +121,7 @@ export function useRuns(entityIds: (string | undefined)[], from: number, thresho
         no_attributes: true,
         significant_changes_only: false,
       });
+      if (req !== request.current) return;
       const out: Record<string, Run[]> = {};
       for (const id of ids) {
         const unit = String(entitiesRef.current[id]?.attributes.unit_of_measurement ?? "W");
@@ -118,16 +133,19 @@ export function useRuns(entityIds: (string | undefined)[], from: number, thresho
       }
       setRuns(out);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Verlauf nicht lesbar");
+      if (req === request.current) setError(err instanceof Error ? err.message : "Verlauf nicht lesbar");
     } finally {
-      setLoading(false);
+      if (req === request.current) setLoading(false);
     }
   }, [key, from, thresholdW, status, ws]);
 
   useEffect(() => {
     load();
     const timer = window.setInterval(load, 60_000);
-    return () => window.clearInterval(timer);
+    return () => {
+      window.clearInterval(timer);
+      request.current++; // laufende Anfrage verwerfen
+    };
   }, [load]);
 
   return { runs, loading, error, reload: load };
@@ -281,24 +299,31 @@ export function useLogbook(from: number) {
   const [entries, setEntries] = useState<LogbookEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
+  // Nur die Antwort der jüngsten Anfrage zählt – ältere (anderer Zeitraum) verwerfen
+  const request = useRef(0);
 
   const load = useCallback(async () => {
-    if (status !== "connected") return;
+    const req = ++request.current;
+    if (status !== "connected") return setLoading(false);
     setLoading(true);
     setError(undefined);
     try {
-      setEntries(await ws<LogbookEntry[]>({ type: "logbook/get_events", start_time: new Date(from).toISOString(), end_time: new Date().toISOString() }));
+      const list = await ws<LogbookEntry[]>({ type: "logbook/get_events", start_time: new Date(from).toISOString(), end_time: new Date().toISOString() });
+      if (req === request.current) setEntries(list);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Logbuch nicht lesbar");
+      if (req === request.current) setError(err instanceof Error ? err.message : "Logbuch nicht lesbar");
     } finally {
-      setLoading(false);
+      if (req === request.current) setLoading(false);
     }
   }, [from, status, ws]);
 
   useEffect(() => {
     load();
     const timer = window.setInterval(load, 60_000);
-    return () => window.clearInterval(timer);
+    return () => {
+      window.clearInterval(timer);
+      request.current++; // laufende Anfrage verwerfen
+    };
   }, [load]);
 
   return { entries, loading, error, reload: load };

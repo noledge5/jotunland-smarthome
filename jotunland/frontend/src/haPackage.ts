@@ -52,9 +52,35 @@ function windowAutomations(rooms: RoomConfig[]): string {
   return `\n  # ------------------------------------------ Fenster (automatisch erzeugt)\n${blocks.join("\n\n")}\n`;
 }
 
-/** Füllt das Paket mit den erkannten entity_ids. Fehlende bleiben als Platzhalter stehen. */
-export function renderPackage(mapping: Mapping, rooms: RoomConfig[] = []): { yaml: string; missing: string[] } {
-  let yaml = packageYaml;
+/**
+ * Blöcke zwischen "# jotunland-requires: <Zuordnung> …" und "# jotunland-end" brauchen alle
+ * genannten Zuordnungen. Fehlt eine, fällt der Block weg – sonst blieben Automationen mit
+ * Platzhaltern (sensor.anpassen_…) stehen, die HA bei jedem Start als "unknown entity" meldet.
+ */
+function dropUnresolved(yaml: string, mapping: Mapping): string {
+  return yaml.replace(
+    /^[ \t]*# jotunland-requires:([^\r\n]*)\r?\n[\s\S]*?^[ \t]*# jotunland-end[^\r\n]*(?:\r?\n|$)/gm,
+    (block, slots: string) => (slots.trim().split(/[\s,]+/).every((s) => !!mapping[s]) ? block : ""),
+  );
+}
+
+/** Kurzer Fingerabdruck (FNV-1a) – erkennt, ob das installierte Paket zur aktuellen Zuordnung passt. */
+function fingerprint(text: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(16).padStart(8, "0");
+}
+
+/**
+ * Füllt das Paket mit den erkannten entity_ids. Automationen, deren Geräte fehlen, fallen weg;
+ * übrige Platzhalter (z. B. in Skripten) bleiben stehen und werden dort per has_value() übersprungen.
+ * Der Fingerabdruck steht als "# jotunland-package-hash: …" in der zweiten Zeile.
+ */
+export function renderPackage(mapping: Mapping, rooms: RoomConfig[] = []): { yaml: string; missing: string[]; hash: string } {
+  let yaml = dropUnresolved(packageYaml, mapping);
   const missing: string[] = [];
   for (const [placeholder, slot] of Object.entries(PLACEHOLDERS)) {
     const id = mapping[slot];
@@ -63,7 +89,9 @@ export function renderPackage(mapping: Mapping, rooms: RoomConfig[] = []): { yam
   }
   // "automation:" ist der letzte Abschnitt des Pakets → Fenster-Automationen anhängen
   yaml = yaml.trimEnd() + "\n" + windowAutomations(rooms);
-  return { yaml, missing };
+  const hash = fingerprint(yaml);
+  yaml = yaml.replace(/^(# jotunland-package-version:[^\n]*\n)/, `$1# jotunland-package-hash: ${hash}\n`);
+  return { yaml, missing, hash };
 }
 
 /** Startwerte für die Helfer (gleiche Werte wie im Add-on-Server). */

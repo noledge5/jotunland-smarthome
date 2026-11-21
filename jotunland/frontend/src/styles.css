@@ -187,7 +187,7 @@ code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-
 /* Rückmeldung und Sperre direkt am Bedienelement */
 .fb { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--muted); white-space: nowrap; }
 .fb.sending { animation: breathe 1.4s ease-in-out infinite; }
-.fb.bad { color: var(--bad); }
+.fb.bad { color: var(--bad); white-space: normal; }
 .fb.blocked { color: var(--warn); }
 .sending { animation: breathe 1.4s ease-in-out infinite; }
 @keyframes breathe { 50% { opacity: 0.45; } }

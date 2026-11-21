@@ -1,4 +1,4 @@
-# jotunland-package-version: 8
+# jotunland-package-version: 9
 # =============================================================================
 #  Jotunland – Home-Assistant-Paket
 #  Helfer, Automationen und Skripte für PV-Überschussladen, Heizzeiten,
@@ -281,17 +281,53 @@ script:
       # Nur Thermostate im Heiz-/Automatikbetrieb – ausgeschaltete (Fenster offen,
       # Sommer) und Klimageräte im Kühlbetrieb bleiben unberührt. Einzeln und
       # fehlertolerant: ein Gerät, das den Befehl ablehnt, hält die anderen nicht auf.
-      - repeat:
-          for_each: >
+      - variables:
+          soll: "{{ temperatur | float }}"
+          thermostate: >
             {{ states.climate | selectattr('state', 'in', ['heat', 'auto'])
                | map(attribute='entity_id') | list }}
+      - repeat:
+          for_each: "{{ thermostate }}"
           sequence:
             - action: climate.set_temperature
               continue_on_error: true
               target:
                 entity_id: "{{ repeat.item }}"
               data:
-                temperature: "{{ temperatur | float }}"
+                temperature: "{{ soll }}"
+      # Der Dienst gilt schon als erledigt, wenn der Befehl verschickt ist (Zigbee2MQTT: MQTT).
+      # Ob das Thermostat ihn übernommen hat, zeigt erst sein gemeldeter Sollwert – einmal für
+      # alle bis zu 60 s warten. Inzwischen ausgeschaltete (Fenster offen) zählen nicht.
+      - if: "{{ thermostate | count > 0 }}"
+        then:
+          - wait_template: >
+              {%- set ns = namespace(ok=true) -%}
+              {%- for t in thermostate if not is_state(t, 'off') -%}
+                {%- if (state_attr(t, 'temperature') | float(-99) - soll) | abs >= 0.25 -%}{%- set ns.ok = false -%}{%- endif -%}
+              {%- endfor -%}
+              {{ ns.ok }}
+            timeout: "00:01:00"
+            continue_on_timeout: true
+          - variables:
+              nicht_uebernommen: >
+                {%- set ns = namespace(l=[]) -%}
+                {%- for t in thermostate if not is_state(t, 'off') -%}
+                  {%- set ist = state_attr(t, 'temperature') -%}
+                  {%- if is_state(t, 'unavailable') or (ist | float(-99) - soll) | abs >= 0.25 -%}
+                    {%- set grund = 'offline' if is_state(t, 'unavailable') or ist is none
+                         else 'Ist-Soll ' ~ (ist | float | round(1) | string).replace('.0', '').replace('.', ',') ~ ' °C statt '
+                              ~ (soll | round(1) | string).replace('.0', '').replace('.', ',') ~ ' °C' -%}
+                    {%- set ns.l = ns.l + [(state_attr(t, 'friendly_name') or t) ~ ' (' ~ grund ~ ')'] -%}
+                  {%- endif -%}
+                {%- endfor -%}
+                {{ ns.l | join(', ') }}
+          - if: "{{ nicht_uebernommen | length > 0 }}"
+            then:
+              - action: logbook.log
+                data:
+                  name: Jotunland Heizung
+                  entity_id: input_number.jotunland_komfort_temperatur
+                  message: "Nicht übernommen: {{ nicht_uebernommen }}"
 
   jotunland_melden:
     alias: "Jotunland: Meldung senden"
@@ -545,9 +581,7 @@ automation:
               {%- set ns.l = ns.l + [c.name ~ ' (' ~ ('aus' if c.state == 'off' else 'keine Rückmeldung') ~ ')'] -%}
             {%- endfor -%}
             {{ ns.l | join(', ') }}
-      - action: script.jotunland_thermostate
-        data:
-          temperatur: "{{ temperatur }}"
+      # erst die Entscheidung ins Logbuch – das Skript wartet danach bis zu 60 s auf die Thermostate
       - action: logbook.log
         data:
           name: Jotunland Heizung
@@ -555,6 +589,9 @@ automation:
           message: >
             {{ 'Komfort' if komfort else 'Absenkung' }} {{ (temperatur | round(1) | string).replace('.', ',') }} °C –
             {{ 'Heizzeit ' ~ zeit if komfort else ('abwesend' if is_state('input_boolean.jotunland_abwesend', 'on') else 'außerhalb der Heizzeit ' ~ zeit) }}{{ ' · übersprungen: ' ~ uebersprungen if uebersprungen }}
+      - action: script.jotunland_thermostate
+        data:
+          temperatur: "{{ temperatur }}"
 
   - id: jotunland_sommerbetrieb
     alias: "Heizung: Sommerbetrieb"
